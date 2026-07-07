@@ -51,7 +51,8 @@ CREATE TABLE collections (
     share_default     INTEGER NOT NULL DEFAULT 0,
     -- Cap on how much of their name a student may show. New collections
     -- default to the K-12-safe 'first_initial'.
-    max_attribution   TEXT NOT NULL DEFAULT 'first_initial',
+    max_attribution   TEXT NOT NULL DEFAULT 'first_initial'
+                        CHECK (max_attribution IN ('full','first_initial','anonymous')),
     created_at        TEXT NOT NULL
 );
 
@@ -63,12 +64,15 @@ CREATE TABLE entries (
     description      TEXT NOT NULL DEFAULT '',   -- paragraphs, blank-line separated
     sources_text     TEXT NOT NULL DEFAULT '',
     contributor_name TEXT,
-    attribution_mode TEXT NOT NULL DEFAULT 'anonymous', -- full | first_initial | anonymous
+    attribution_mode TEXT NOT NULL DEFAULT 'anonymous'
+                       CHECK (attribution_mode IN ('full','first_initial','anonymous')),
     why_chapter      TEXT,
     wikipedia_url    TEXT,
-    status           TEXT NOT NULL DEFAULT 'pending',    -- pending|approved|rejected
+    status           TEXT NOT NULL DEFAULT 'pending'
+                       CHECK (status IN ('pending','approved','rejected')),
     share_communal   INTEGER NOT NULL DEFAULT 0,
-    communal_status  TEXT NOT NULL DEFAULT 'none',       -- none|pending|approved|rejected
+    communal_status  TEXT NOT NULL DEFAULT 'none'
+                       CHECK (communal_status IN ('none','pending','approved','rejected')),
     license_grant    INTEGER NOT NULL DEFAULT 0,         -- student granted CC BY-SA
     license_notice   TEXT,                               -- e.g. 'CC BY-SA 3.0 (Wikipedia)'
     review_flags     TEXT NOT NULL DEFAULT '[]',         -- JSON array
@@ -113,8 +117,9 @@ CREATE TABLE photos (
 CREATE INDEX idx_photos_entry ON photos(entry_id);
 
 CREATE TABLE wanted_scientists (
-    id      INTEGER PRIMARY KEY,
-    name    TEXT NOT NULL,
-    note    TEXT,
-    source  TEXT
+    id       INTEGER PRIMARY KEY,
+    name     TEXT NOT NULL,
+    note     TEXT,
+    source   TEXT,
+    is_seed  INTEGER NOT NULL DEFAULT 0  -- seed re-run clears only its own rows
 );

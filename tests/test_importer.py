@@ -136,8 +136,13 @@ def test_wikipedia_verbatim_gets_license_notice(seeded):
 
 def test_wanted_list_seeded(seeded):
     conn, report = seeded
-    assert report.wanted_loaded == 7
-    assert _count(conn, "SELECT count(*) FROM wanted_scientists") == 7
+    assert report.wanted_loaded == 6  # Ibn al-Haytham removed (he has an entry)
+    assert _count(conn, "SELECT count(*) FROM wanted_scientists") == 6
+    # nobody in the wanted list already has an approved-or-seed entry
+    dupes = conn.execute(
+        "SELECT w.name FROM wanted_scientists w "
+        "JOIN entries e ON e.scientist_name = w.name").fetchall()
+    assert dupes == []
 
 
 def test_reimport_is_idempotent(tmp_path):
@@ -150,6 +155,72 @@ def test_reimport_is_idempotent(tmp_path):
     assert _count(conn, "SELECT count(*) FROM entries") == first
     assert _count(conn, "SELECT count(*) FROM textbooks") == 3
     assert _count(conn, "SELECT count(*) FROM placements") == 65
+    assert _count(conn, "SELECT count(*) FROM wanted_scientists") == 6  # not doubled
+
+
+def test_reseed_preserves_live_textbook_links(tmp_path):
+    """M2 review (critical): re-seeding must NOT null a class's textbook
+    link. Textbooks are UPSERTed by slug, ids stay stable."""
+    conn = db_mod.init_db(tmp_path / "seed.db", now=NOW)
+    kw = dict(scientists_dir=SCIENTISTS, manifest_path=MANIFEST,
+              photo_dir=tmp_path / "photos", now=NOW, decks_dir=None, fetch_photos=False)
+    seed_import(conn, **kw)
+    tb_id = conn.execute("SELECT id FROM textbooks WHERE slug='knight-calc-3rd'").fetchone()[0]
+    # a teacher collection + a student placement referencing that textbook
+    conn.execute(
+        "INSERT INTO collections(slug,name,manage_token_hash,textbook_id,created_at) "
+        "VALUES('cls','Class','hash',?,?)", (tb_id, NOW))
+    conn.execute(
+        "INSERT INTO entries(scientist_name,scientist_slug,created_at,updated_at) "
+        "VALUES('S','s',?,?)", (NOW, NOW))
+    sid = conn.execute("SELECT id FROM entries WHERE scientist_slug='s'").fetchone()[0]
+    conn.execute(
+        "INSERT INTO placements(entry_id,textbook_id,chapter,raw_line) VALUES(?,?,9,'x')",
+        (sid, tb_id))
+    conn.execute(
+        "INSERT INTO wanted_scientists(name,is_seed) VALUES('User Pick',0)")
+    conn.commit()
+
+    seed_import(conn, **kw)  # re-seed
+
+    assert conn.execute("SELECT id FROM textbooks WHERE slug='knight-calc-3rd'").fetchone()[0] == tb_id
+    assert conn.execute("SELECT textbook_id FROM collections WHERE slug='cls'").fetchone()[0] == tb_id
+    row = conn.execute("SELECT textbook_id, toc_row_id FROM placements WHERE entry_id=?", (sid,)).fetchone()
+    assert row["textbook_id"] == tb_id and row["toc_row_id"] is not None  # re-linked
+    # user-added wanted survives; seed wanted not doubled
+    assert _count(conn, "SELECT count(*) FROM wanted_scientists WHERE is_seed=0") == 1
+
+
+def test_reseed_refused_when_adopted_lineage_would_break(tmp_path):
+    from nonnewtonian.importer import SeedRefused
+
+    conn = db_mod.init_db(tmp_path / "seed.db", now=NOW)
+    kw = dict(scientists_dir=SCIENTISTS, manifest_path=MANIFEST,
+              photo_dir=tmp_path / "photos", now=NOW, decks_dir=None, fetch_photos=False)
+    seed_import(conn, **kw)
+    seed_id = conn.execute("SELECT id FROM entries WHERE seed_origin IS NOT NULL LIMIT 1").fetchone()[0]
+    conn.execute(
+        "INSERT INTO entries(scientist_name,scientist_slug,adopted_from_entry_id,created_at,updated_at) "
+        "VALUES('Adopted','adopted',?,?,?)", (seed_id, NOW, NOW))
+    conn.commit()
+    with pytest.raises(SeedRefused):
+        seed_import(conn, **kw)
+    seed_import(conn, force=True, **kw)  # force overrides
+
+
+def test_chapter_not_in_toc_is_flagged(seeded):
+    conn, _ = seeded
+    # A placement whose chapter exceeds its textbook's TOC is flagged,
+    # not silently counted as cleanly matched.
+    flagged = conn.execute(
+        "SELECT count(*) FROM placements WHERE flags LIKE '%chapter-not-in-toc%'"
+    ).fetchone()[0]
+    assert flagged >= 1
+    # and such a placement keeps its textbook_id + raw line
+    row = conn.execute(
+        "SELECT textbook_id, raw_line FROM placements WHERE flags LIKE '%chapter-not-in-toc%' LIMIT 1"
+    ).fetchone()
+    assert row["textbook_id"] is not None and row["raw_line"].strip()
 
 
 def test_dry_run_report_matches_real_counts(seeded):

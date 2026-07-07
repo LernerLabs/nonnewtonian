@@ -129,9 +129,16 @@ def _license_notice(filename: str) -> str | None:
 
 
 def load_textbooks(conn, manifest_path: Path, now: str, report: SeedReport) -> dict[str, int]:
-    """Load textbooks + toc_rows + aliases from the manifest.  Returns
-    {slug: textbook_id}.  Textbooks whose CSV is missing are skipped
-    (logged), not fatal — the 3 web-sourced TOCs may not be present yet."""
+    """Load/refresh textbooks + toc_rows + aliases from the manifest.
+
+    UPSERTs each textbook by slug so its id is STABLE across re-runs —
+    delete+recreate would fire ON DELETE SET NULL on collections and
+    placements that reference the textbook, silently orphaning live
+    teacher/student data (M2 adversarial review, 3 confirmed findings).
+    toc_rows/aliases are replaced, then placements are re-linked to the
+    fresh toc_rows so no placement.toc_row_id is left dangling.
+
+    Returns {slug: textbook_id}.  Missing/invalid CSVs are skipped."""
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     base = manifest_path.parent
     slug_to_id: dict[str, int] = {}
@@ -145,14 +152,22 @@ def load_textbooks(conn, manifest_path: Path, now: str, report: SeedReport) -> d
         except Exception as exc:  # invalid CSV: skip loudly, don't abort seed
             report.textbooks_skipped.append(f"{tb['slug']} (invalid: {exc})")
             continue
-        cur = conn.execute(
+        conn.execute(
             "INSERT INTO textbooks(slug,title,author,edition,discipline,is_builtin,created_at)"
-            " VALUES(?,?,?,?,?,1,?)",
+            " VALUES(?,?,?,?,?,1,?)"
+            " ON CONFLICT(slug) DO UPDATE SET"
+            "  title=excluded.title, author=excluded.author, edition=excluded.edition,"
+            "  discipline=excluded.discipline, is_builtin=1",
             (tb["slug"], tb["title"], tb.get("author"), tb.get("edition"),
              tb.get("discipline", "physics"), now),
         )
-        textbook_id = cur.lastrowid
+        textbook_id = conn.execute(
+            "SELECT id FROM textbooks WHERE slug=?", (tb["slug"],)
+        ).fetchone()[0]
         slug_to_id[tb["slug"]] = textbook_id
+        # Replace this textbook's TOC and aliases in place (id stays put).
+        conn.execute("DELETE FROM toc_rows WHERE textbook_id=?", (textbook_id,))
+        conn.execute("DELETE FROM textbook_aliases WHERE textbook_id=?", (textbook_id,))
         for order, row in enumerate(rows):
             conn.execute(
                 "INSERT INTO toc_rows(textbook_id,sort_order,chapter,section,topics)"
@@ -164,12 +179,23 @@ def load_textbooks(conn, manifest_path: Path, now: str, report: SeedReport) -> d
                 "INSERT INTO textbook_aliases(textbook_id,alias,ambiguous) VALUES(?,?,?)",
                 (textbook_id, alias["alias"], alias["ambiguous"]),
             )
+        # Re-link any existing placements (e.g. student ones) to the fresh
+        # toc_rows, since replacing toc_rows nulled their toc_row_id.
+        conn.execute(
+            "UPDATE placements SET toc_row_id=("
+            "  SELECT id FROM toc_rows WHERE textbook_id=? AND chapter=placements.chapter"
+            "  ORDER BY sort_order LIMIT 1)"
+            " WHERE textbook_id=?",
+            (textbook_id, textbook_id),
+        )
         report.textbooks_loaded.append(tb["slug"])
     conn.commit()
 
+    # Seed-scoped: clear only prior SEED wanted rows, never user-added ones.
+    conn.execute("DELETE FROM wanted_scientists WHERE is_seed=1")
     for wanted in manifest.get("wanted_scientists", []):
         conn.execute(
-            "INSERT INTO wanted_scientists(name,note,source) VALUES(?,?,?)",
+            "INSERT INTO wanted_scientists(name,note,source,is_seed) VALUES(?,?,?,1)",
             (wanted["name"], wanted.get("note"), wanted.get("source")),
         )
         report.wanted_loaded += 1
@@ -238,26 +264,34 @@ def _insert_entry(conn, entry: Entry, filename: str, description: list[str],
         report.placements_total += 1
         textbook_id = None
         toc_row_id = None
+        placement_flags = list(placement.flags)
         if placement.textbook_key:
             slug = _KEY_TO_SLUG.get(placement.textbook_key)
             textbook_id = slug_to_id.get(slug) if slug else None
         if textbook_id:
             toc_row_id = _match_toc_row(conn, textbook_id, placement.chapter)
-            report.placements_matched += 1
+            if toc_row_id is None:
+                # Matched a textbook but the chapter isn't in its TOC
+                # (e.g. Lene Hau ch 40 of a 30-chapter book) — surface it
+                # for review rather than counting it as cleanly matched.
+                placement_flags.append("chapter-not-in-toc")
+                report.placements_unassigned += 1
+            else:
+                report.placements_matched += 1
         else:
             report.placements_unassigned += 1
-        section_label = placement.chapter_label or placement.extra_label
+        # section_label carries both the chapter's parenthetical (e.g.
+        # "(Nuclear Physics)") and any section list, kept distinct.
+        label_parts = [p for p in (placement.chapter_label, placement.extra_label) if p]
         if placement.sections:
-            section_label = (
-                (section_label + " " if section_label else "")
-                + "s" + ",".join(str(s) for s in placement.sections)
-            )
+            label_parts.append("sections " + ", ".join(str(s) for s in placement.sections))
+        section_label = "; ".join(label_parts) or None
         conn.execute(
             "INSERT INTO placements("
             " entry_id,textbook_id,toc_row_id,chapter,section_label,raw_line,flags)"
             " VALUES(?,?,?,?,?,?,?)",
             (entry_id, textbook_id, toc_row_id, placement.chapter,
-             section_label, placement.raw_line, json.dumps(placement.flags)),
+             section_label, placement.raw_line, json.dumps(placement_flags)),
         )
 
     # photos
@@ -324,16 +358,34 @@ def _recover_from_deck(conn, entry_id: int, name: str, decks_dir: Path,
         report.photos_recovered += 1
 
 
+class SeedRefused(RuntimeError):
+    """Re-seed would delete seed entries that live user data depends on."""
+
+
 def seed_import(conn, *, scientists_dir: Path, manifest_path: Path,
                 photo_dir: Path, now: str, decks_dir: Path | None = None,
-                fetch_photos: bool = True) -> SeedReport:
-    """Run the full seed.  Idempotent: clears prior seed rows first."""
+                fetch_photos: bool = True, force: bool = False) -> SeedReport:
+    """Run the seed.  Safe to re-run: textbooks are UPSERTed by slug (ids
+    stable), so re-seeding to pick up new TOCs never orphans a class's
+    textbook link.  Seed entries are still deleted+reinserted; that would
+    null any live entry's adopted_from lineage into a seed entry, so if
+    such lineage exists we refuse unless force=True (M2 review)."""
     report = SeedReport()
-    # Idempotency: remove prior seed entries (cascades to placements/photos)
-    # and the builtin textbooks/wanted list.
+    if not force:
+        adopted = conn.execute(
+            "SELECT count(*) FROM entries child "
+            "JOIN entries seed ON child.adopted_from_entry_id = seed.id "
+            "WHERE seed.seed_origin IS NOT NULL AND child.seed_origin IS NULL"
+        ).fetchone()[0]
+        if adopted:
+            raise SeedRefused(
+                f"{adopted} user entries adopt a seed entry; re-seeding would "
+                "sever that lineage. Pass force=True to override."
+            )
+    # Remove prior seed entries only (cascades to their placements/photos).
+    # Textbooks and seed wanted rows are reconciled in load_textbooks,
+    # non-destructively, so live FKs into them survive.
     conn.execute("DELETE FROM entries WHERE seed_origin IS NOT NULL")
-    conn.execute("DELETE FROM textbooks WHERE is_builtin=1")
-    conn.execute("DELETE FROM wanted_scientists")
     conn.commit()
 
     slug_to_id = load_textbooks(conn, manifest_path, now, report)

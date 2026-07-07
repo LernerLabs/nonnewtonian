@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -22,7 +23,16 @@ from .importer import seed_import
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_SCIENTISTS = _REPO_ROOT / "tests" / "fixtures" / "scientists"
 _DEFAULT_MANIFEST = _REPO_ROOT / "data" / "textbooks" / "manifest.json"
-_DEFAULT_DECKS = Path("/Users/mglerner/coding/IntroductoryPhysics/Textbooks")
+
+
+def _default_decks_dir() -> str | None:
+    """Original .pptx decks for dead-photo recovery.  From $NNP_DECKS, or
+    a sibling IntroductoryPhysics checkout if present; else none."""
+    env = os.environ.get("NNP_DECKS")
+    if env:
+        return env
+    sibling = _REPO_ROOT.parent / "IntroductoryPhysics" / "Textbooks"
+    return str(sibling) if sibling.exists() else None
 
 
 def _print_report(report) -> None:
@@ -93,8 +103,8 @@ def build_parser() -> argparse.ArgumentParser:
     seed.add_argument("--scientists", default=str(_DEFAULT_SCIENTISTS))
     seed.add_argument("--manifest", default=str(_DEFAULT_MANIFEST))
     seed.add_argument("--photo-dir", default="data/photos")
-    seed.add_argument("--decks-dir", default=str(_DEFAULT_DECKS),
-                      help="original .pptx decks for dead-photo recovery")
+    seed.add_argument("--decks-dir", default=_default_decks_dir(),
+                      help="original .pptx decks for dead-photo recovery ($NNP_DECKS)")
     seed.add_argument("--dry-run", action="store_true")
     seed.add_argument("--no-photos", action="store_true", help="skip network photo fetching")
     seed.set_defaults(func=cmd_seed_import)
