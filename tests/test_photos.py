@@ -60,6 +60,52 @@ class TestValidateUrl:
             resolver=_fake_resolver({"photos.example": "93.184.216.34"}),
         )
 
+    def test_returns_vetted_ip_for_pinning(self):
+        host, port, ip = validate_url(
+            "https://photos.example/x.jpg",
+            resolver=_fake_resolver({"photos.example": "93.184.216.34"}),
+        )
+        assert (host, ip) == ("photos.example", "93.184.216.34")
+
+
+class TestConnectionPinning:
+    """The M4-review SSRF fix: fetch_photo must connect to the vetted IP,
+    not re-resolve at connect time (DNS rebinding). Prove the pinning
+    adapter dials the pinned IP regardless of the hostname's real DNS."""
+
+    def test_pinned_session_dials_the_pinned_ip(self, tmp_path):
+        import http.server, socketserver, threading, requests
+        from nonnewtonian.photos import _pin_session_to_ip
+
+        served = {"hit": False}
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                served["hit"] = True
+                body = b"pinned-ok"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):  # quiet
+                pass
+
+        with socketserver.TCPServer(("127.0.0.1", 0), H) as srv:
+            port = srv.server_address[1]
+            t = threading.Thread(target=srv.serve_forever, daemon=True)
+            t.start()
+            try:
+                session = requests.Session()
+                # 'nowhere.invalid' has no DNS at all; only the pin makes
+                # this resolve. If the request succeeds, it dialed the IP.
+                _pin_session_to_ip(session, "nowhere.invalid", "127.0.0.1")
+                r = session.get(f"http://nowhere.invalid:{port}/x", timeout=5)
+                assert r.text == "pinned-ok"
+                assert served["hit"]
+            finally:
+                srv.shutdown()
+
     def test_rejects_unresolvable_host(self):
         with pytest.raises(PhotoError, match="look up"):
             validate_url("https://nope.example/x.jpg", resolver=_fake_resolver({}))

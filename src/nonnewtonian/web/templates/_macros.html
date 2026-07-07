@@ -7,7 +7,7 @@
       {% if not p.license_verified %}
         <div class="photo-note">
           {% if p.recovered %}image recovered from an archived slide{% else %}source unverified{% endif %}
-          {% if p.original_url %}&middot; <a href="{{ p.original_url }}" rel="nofollow noopener">origin</a>{% endif %}
+          {% if p.original_url %}&middot; <a href="{{ p.original_url }}" rel="nofollow noopener noreferrer">origin</a>{% endif %}
         </div>
       {% endif %}
     {% else %}

@@ -14,7 +14,7 @@
           <img src="{{ url_for('public.photo', relpath=p.file_path) }}" alt="Portrait of {{ name }}">
           <figcaption class="photo-note">
             {% if p.recovered %}recovered from an archived slide{% elif not p.license_verified %}source unverified{% else %}{{ p.license }}{% endif %}
-            {% if p.original_url %}&middot; <a href="{{ p.original_url }}" rel="nofollow noopener">origin</a>{% endif %}
+            {% if p.original_url %}&middot; <a href="{{ p.original_url }}" rel="nofollow noopener noreferrer">origin</a>{% endif %}
           </figcaption>
         </figure>
       {% endfor %}

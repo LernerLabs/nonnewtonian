@@ -10,14 +10,16 @@ Pillow (which also defuses decompression bombs and exotic payloads), and
 stored under a content-hash filename.  Display and slide generation only
 ever touch the local file.
 
-SSRF posture (per the plan's adversarial review): ``validate_url``
+SSRF posture (per the plan's adversarial reviews): ``validate_url``
 rejects non-http(s) schemes and any hostname resolving to a private,
-loopback, link-local, or otherwise non-global address; ``fetch_photo``
-follows redirects manually and re-validates every hop, and reads the
-body as a capped stream.  Residual TOCTOU (DNS rebinding between the
-resolve-check and the connect) is NOT fully closed here — pinning the
-connection to the vetted IP is wired up in the web app (M4), where the
-plan's SSRF verify step gates it.  Flagged, not hidden.
+loopback, link-local, or otherwise non-global address, and returns the
+vetted IP; ``fetch_photo`` follows redirects manually, re-validates
+every hop, PINS each connection to the vetted IP (``_pin_session_to_ip``,
+via urllib3's ``_dns_host`` — connect to the IP, keep the hostname for
+Host/SNI), and reads the body as a capped stream.  Pinning closes the
+DNS-rebinding TOCTOU the M4 review found: a name that re-resolves to an
+internal address at connect time can no longer be reached, because we
+connect to the address we already vetted.
 """
 
 from __future__ import annotations
@@ -82,8 +84,9 @@ def validate_url(url: str, *, resolver=socket.getaddrinfo) -> None:
     exotic authorities differently (e.g. a backslash or userinfo in the
     netloc), so a host validated here might not be the host connected
     to.  Defense: reject backslashes and userinfo outright, so the
-    accepted subset parses identically everywhere.  Full pin-to-vetted-IP
-    lands with the web app wiring (M4).
+    accepted subset parses identically everywhere.  Returns
+    ``(hostname, port, vetted_ip)`` so ``fetch_photo`` can pin the
+    connection to the address validated here.
     """
     if "\\" in url:
         raise PhotoError("That link contains a backslash, which is not valid in a web link.")
@@ -108,6 +111,7 @@ def validate_url(url: str, *, resolver=socket.getaddrinfo) -> None:
         raise PhotoError(f"Could not look up {hostname!r}.") from None
     if not infos:
         raise PhotoError(f"Could not look up {hostname!r}.")
+    vetted: list[str] = []
     for info in infos:
         try:
             address = ipaddress.ip_address(info[4][0])
@@ -118,6 +122,10 @@ def validate_url(url: str, *, resolver=socket.getaddrinfo) -> None:
                 "That link points at a private or internal address, "
                 "which this site will not fetch."
             )
+        vetted.append(str(address))
+    # Return one vetted IP so the caller can PIN the connection to it,
+    # closing the resolve-then-connect rebinding window (M4 review).
+    return hostname, port, vetted[0]
 
 
 def sniff_image_type(data: bytes) -> str:
@@ -188,13 +196,60 @@ def store_bytes(data: bytes, dest_dir: Path, *, original_url: str | None = None)
     )
 
 
+def _pin_session_to_ip(session: requests.Session, host: str, ip: str) -> None:
+    """Mount an adapter that dials the vetted IP for `host` while keeping
+    the hostname for the Host header and TLS SNI/verification.  urllib3's
+    ``_dns_host`` is the exact seam for this: the connection resolves and
+    connects to ``_dns_host`` but presents ``host`` to TLS.  This closes
+    the DNS-rebinding TOCTOU: even if the name re-resolves to a private
+    address at connect time, we connect to the address we already vetted."""
+    from urllib3 import PoolManager
+    from urllib3.connection import HTTPConnection, HTTPSConnection
+    from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
+
+    class _PinHTTP(HTTPConnection):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            if self.host == host:
+                self._dns_host = ip
+
+    class _PinHTTPS(HTTPSConnection):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            if self.host == host:
+                self._dns_host = ip
+
+    class _PinHTTPPool(HTTPConnectionPool):
+        ConnectionCls = _PinHTTP
+
+    class _PinHTTPSPool(HTTPSConnectionPool):
+        ConnectionCls = _PinHTTPS
+
+    class _PinAdapter(requests.adapters.HTTPAdapter):
+        def init_poolmanager(self, connections, maxsize, block=False, **kw):
+            pm = PoolManager(num_pools=connections, maxsize=maxsize, block=block, **kw)
+            pm.pool_classes_by_scheme = {"http": _PinHTTPPool, "https": _PinHTTPSPool}
+            self.poolmanager = pm
+
+    adapter = _PinAdapter(max_retries=0)
+    session.mount(f"http://{host}", adapter)
+    session.mount(f"https://{host}", adapter)
+
+
 def fetch_photo(url: str, dest_dir: Path, *, session: requests.Session | None = None,
                 resolver=socket.getaddrinfo) -> StoredPhoto:
-    """Fetch, validate, normalize, and store one remote photo."""
+    """Fetch, validate, normalize, and store one remote photo.
+
+    Each hop is validated AND its connection pinned to the vetted IP, so
+    a rebinding hostname cannot slip an internal address in between the
+    resolve-check and the socket connect."""
     session = session or requests.Session()
+    real_session = isinstance(session, requests.Session)  # tests inject fakes
     current = url
     for _ in range(MAX_REDIRECTS + 1):
-        validate_url(current, resolver=resolver)
+        host, _port, ip = validate_url(current, resolver=resolver)
+        if real_session:
+            _pin_session_to_ip(session, host, ip)
         response = session.get(
             current, stream=True, timeout=FETCH_TIMEOUT, allow_redirects=False
         )

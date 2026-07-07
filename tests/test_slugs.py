@@ -20,7 +20,13 @@ def test_special_letters_ndk_misses():
 
 def test_never_empty_or_pathlike():
     assert slugify("") == "x"
-    assert slugify("///") == "x"
-    assert slugify("..") == "x"
-    assert "/" not in slugify("a/b")
-    assert slugify("你好") == "x"  # all-non-ascii falls back, never blank
+    for s in [slugify("///"), slugify(".."), slugify("你好"), slugify("a/b")]:
+        assert s and "/" not in s and ".." not in s  # non-blank, never path-like
+
+
+def test_nonlatin_names_get_distinct_stable_slugs():
+    # The M4 review: all-non-Latin names must NOT collapse to one slug.
+    a, b = slugify("吴健雄"), slugify("李政道")
+    assert a != b
+    assert a != "x" and b != "x"
+    assert slugify("吴健雄") == a  # stable across calls

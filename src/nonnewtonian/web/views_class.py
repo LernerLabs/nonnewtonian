@@ -52,10 +52,11 @@ def embed(slug):
     conn = _db()
     chapters = q.class_chapters(conn, coll["id"], coll["textbook_id"]) if coll["textbook_id"] else []
     resp = current_app.make_response(render_template("embed.html", coll=coll, chapters=chapters))
-    # Embed routes are framable; the global after_request denies framing
-    # everywhere else (see app factory). Full matrix + auto-resize: M6.
+    # Embed routes are the ONE framable surface; the global after_request
+    # (app factory) sets X-Frame-Options: DENY everywhere a CSP
+    # frame-ancestors isn't already present, so this line is what keeps
+    # the embed framable while manage/moderation pages stay frame-denied.
     resp.headers["Content-Security-Policy"] = "frame-ancestors *"
-    resp.headers["X-Frame-Options"] = "ALLOWALL"
     return resp
 
 
@@ -99,6 +100,12 @@ def submit_post(slug):
         return _rerender_submit(coll, values, error), 400
 
     placement = _build_placement(conn, coll, values)
+    # If the class has a textbook, an entry with no resolved chapter would
+    # be approved yet never appear on the chapter page (silent loss, M4
+    # review). Require a valid chapter rather than accept an invisible one.
+    if coll["textbook_id"] and placement is None:
+        return _rerender_submit(coll, values,
+                                "Please choose a chapter from the list."), 400
     entry_id = repo.create_submission(
         conn, collection_id=coll["id"], scientist_name=name,
         description=description, sources_text=values.get("sources", "").strip(),

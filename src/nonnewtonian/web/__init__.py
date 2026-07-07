@@ -67,6 +67,21 @@ def create_app(config: dict | None = None) -> Flask:
         if conn is not None:
             conn.close()
 
+    @app.after_request
+    def _security_headers(resp):
+        # Clickjacking: deny framing everywhere the view didn't explicitly
+        # opt in with a CSP frame-ancestors (only /c/<slug>/embed does), so
+        # the token-bearing manage/moderation pages can't be framed to
+        # trick a teacher into approving/deleting (M4 review).
+        csp = resp.headers.get("Content-Security-Policy", "")
+        if "frame-ancestors" not in csp:
+            resp.headers.setdefault("X-Frame-Options", "DENY")
+        # The manage token lives in the URL path; no-referrer keeps it out
+        # of the Referer header on any outbound link (mailto, Wikipedia).
+        resp.headers.setdefault("Referrer-Policy", "no-referrer")
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        return resp
+
     app.get_db = get_db  # type: ignore[attr-defined]
     app.utcnow = _utcnow  # type: ignore[attr-defined]
 

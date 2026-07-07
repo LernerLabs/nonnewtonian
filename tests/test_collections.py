@@ -184,6 +184,71 @@ def test_attribution_capped_by_class_setting(client, app):
     assert mode == "first_initial"
 
 
+def test_delete_does_not_unlink_a_photo_another_class_still_uses(client, app, tmp_path):
+    # Two classes, same content-hash photo file: deleting class A must not
+    # break class B's page (M4 review critical).
+    import nonnewtonian.web.views_class as vc
+    photo_dir = tmp_path / "photos"; photo_dir.mkdir(exist_ok=True)
+    shared = photo_dir / "ab"; shared.mkdir()
+    (shared / "hash.jpg").write_bytes(b"img")
+    rel = "ab/hash.jpg"
+
+    tokA = _token_from(_create_class(client, name="A"))
+    slugA = _conn(app).execute("SELECT slug FROM collections ORDER BY id DESC LIMIT 1").fetchone()[0]
+    tokB = _token_from(_create_class(client, name="B"))
+    conn = _conn(app)
+    for slug in (slugA,):
+        cid = conn.execute("SELECT id FROM collections WHERE slug=?", (slug,)).fetchone()[0]
+    # give each class an entry pointing at the SAME file
+    for cid in [r[0] for r in conn.execute("SELECT id FROM collections")]:
+        conn.execute("INSERT INTO entries(collection_id,scientist_name,scientist_slug,created_at,updated_at) "
+                     "VALUES(?,'S','s',?,?)", (cid, NOW, NOW))
+        eid = conn.execute("SELECT id FROM entries ORDER BY id DESC LIMIT 1").fetchone()[0]
+        conn.execute("INSERT INTO photos(entry_id,file_path,is_primary,fetch_status) VALUES(?,?,1,'stored')", (eid, rel))
+    conn.commit(); conn.close()
+
+    client.post(f"/manage/{tokA}/delete", data={"confirm": slugA})
+    assert (shared / "hash.jpg").exists()  # class B still references it -> file kept
+
+
+def test_slug_fallback_keeps_distinct_nonlatin_names_distinct():
+    from nonnewtonian.slugs import slugify
+    a, b = slugify("吴健雄"), slugify("李政道")
+    assert a != b and a != "x" and b != "x"
+    assert slugify("吴健雄") == a  # stable
+
+
+def test_two_nonlatin_scientists_are_not_false_duplicates(client, app):
+    loc = _create_class(client)
+    slug = _conn(app).execute("SELECT slug FROM collections").fetchone()[0]
+    assert _submit(client, slug, scientist_name="吴健雄").status_code == 200
+    assert _submit(client, slug, scientist_name="李政道").status_code == 200  # distinct, not "already submitted"
+
+
+def test_manage_page_is_frame_denied_but_embed_is_framable(client, app):
+    tok = _token_from(_create_class(client))
+    slug = _conn(app).execute("SELECT slug FROM collections").fetchone()[0]
+    assert client.get(f"/manage/{tok}").headers.get("X-Frame-Options") == "DENY"
+    embed = client.get(f"/c/{slug}/embed")
+    assert embed.headers.get("X-Frame-Options") is None
+    assert "frame-ancestors" in embed.headers.get("Content-Security-Policy", "")
+
+
+def test_no_referrer_policy_on_manage(client, app):
+    tok = _token_from(_create_class(client))
+    assert client.get(f"/manage/{tok}").headers.get("Referrer-Policy") == "no-referrer"
+
+
+def test_submission_without_valid_chapter_is_rejected(client, app):
+    loc = _create_class(client)
+    slug = _conn(app).execute("SELECT slug FROM collections").fetchone()[0]
+    # class has a textbook; a bogus chapter would place nowhere -> reject,
+    # don't accept an entry that could be approved yet stay invisible.
+    r = client.post(f"/c/{slug}/submit", data={"scientist_name": "Ghost", "chapter": "999",
+                    "description": "d", "license_grant": "1", "form_ts": "0"})
+    assert r.status_code == 400 and b"choose a chapter" in r.data
+
+
 def test_delete_requires_slug_confirmation(client, app):
     tok = _token_from(_create_class(client))
     slug = _conn(app).execute("SELECT slug FROM collections").fetchone()[0]

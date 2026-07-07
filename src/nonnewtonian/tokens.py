@@ -5,7 +5,15 @@ its SHA-256 hash is stored, so a database leak cannot hand out
 moderation rights.  Plain SHA-256 (no salt, no KDF) is correct here:
 salting/stretching defend *low-entropy* secrets like passwords against
 brute force; a 192-bit random token has no brute-force surface, and a
-fast hash keeps per-request lookup cheap.  Comparison is constant-time.
+fast hash keeps per-request lookup cheap.
+
+Request-time lookup is an indexed equality on the STORED HASH
+(``WHERE manage_token_hash = ?``), not a comparison of the secret
+itself: the query only ever sees the hash, and finding a hash that
+collides needs a SHA-256 preimage, so equality-vs-constant-time on the
+hash column leaks nothing usable.  ``token_matches`` (constant-time on
+the hashes) is provided for any code path that compares two tokens
+directly rather than via the DB index.
 """
 
 from __future__ import annotations

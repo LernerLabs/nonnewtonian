@@ -9,6 +9,7 @@ covers letters NFKD leaves intact (ø, ł, ...).
 
 from __future__ import annotations
 
+import hashlib
 import re
 import unicodedata
 
@@ -24,11 +25,21 @@ _NON_SLUG = re.compile(r"[^a-z0-9]+")
 def slugify(text: str) -> str:
     """Return a lowercase ASCII ``a-z0-9-`` slug for ``text``.
 
-    Empty or all-non-ASCII input yields ``"x"`` so a slug is never blank
-    (which would break URLs/filenames).
+    When a name has no ASCII letters (e.g. a name written entirely in
+    Chinese or Arabic script), NFKD leaves nothing, so we fall back to a
+    short stable hash of the ORIGINAL name — ``"s-<hash>"`` — rather than
+    a shared constant.  A shared constant collapsed every such name to one
+    slug, which made distinct scientists collide: false "already
+    submitted" rejections and per-chapter dedup dropping all but one
+    (M4 review).  The hash keeps distinct names distinct and stable.
     """
     mapped = "".join(_SPECIAL.get(ch, ch) for ch in text)
     decomposed = unicodedata.normalize("NFKD", mapped)
     ascii_text = decomposed.encode("ascii", "ignore").decode("ascii").lower()
     slug = _NON_SLUG.sub("-", ascii_text).strip("-")
-    return slug or "x"
+    if slug:
+        return slug
+    normalized = unicodedata.normalize("NFC", text).strip()
+    if normalized:
+        return "s-" + hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:10]
+    return "x"

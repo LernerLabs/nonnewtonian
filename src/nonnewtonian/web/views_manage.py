@@ -203,15 +203,23 @@ def delete(token):
     if request.form.get("confirm") != coll["slug"]:
         abort(400)
     conn = _db()
-    # Remove photo files for this class's private (non-communal) entries.
+    # Remove photo files for this class's private (non-communal) entries —
+    # but photos are content-addressed and SHARED across entries/classes,
+    # so only unlink a file once NO surviving row references it (M4 review:
+    # unconditional unlink corrupted another class's page). Collect
+    # candidate paths, delete the rows, then unlink the now-unreferenced.
     from pathlib import Path
     photo_dir = Path(current_app.config["PHOTO_DIR"]).resolve()
-    for row in conn.execute(
+    candidates = {row["file_path"] for row in conn.execute(
         "SELECT ph.file_path FROM photos ph JOIN entries e ON ph.entry_id=e.id "
         "WHERE e.collection_id=? AND ph.file_path IS NOT NULL AND e.communal_status='none'",
-        (coll["id"],)):
-        _safe_unlink(photo_dir, row["file_path"])
-    conn.execute("DELETE FROM collections WHERE id=?", (coll["id"],))
+        (coll["id"],))}
+    conn.execute("DELETE FROM collections WHERE id=?", (coll["id"],))  # cascades photos rows
+    for path in candidates:
+        still = conn.execute(
+            "SELECT 1 FROM photos WHERE file_path=? LIMIT 1", (path,)).fetchone()
+        if not still:
+            _safe_unlink(photo_dir, path)
     conn.commit()
     return render_template("deleted.html", name=coll["name"])
 
