@@ -54,5 +54,13 @@ def test_blank_lines_skipped():
 
 
 def test_sections_load_when_present():
-    rows = load_toc('Chapter,Section,Topics\n1,1,"A"\n1,2,"B"\n')
-    assert [row.section for row in rows] == [1, 2]
+    rows = load_toc('Chapter,Section,Topics\n1,1,"A"\n1,2,"B"\n2,,"C"\n2,1,"D"\n')
+    assert [(r.chapter, r.section) for r in rows] == [(1, 1), (1, 2), (2, None), (2, 1)]
+
+
+def test_repair_leaves_legitimately_empty_quoted_field_alone():
+    """M1 review: the repair must not corrupt a valid '1,,""' line."""
+    text = 'Chapter,Section,Topics\n1,,""\n2,,"Real topic""\n'
+    repaired = repair_doubled_quotes(text)
+    assert '1,,""' in repaired  # untouched
+    assert '2,,"Real topic"' in repaired  # fixed

@@ -52,8 +52,14 @@ def format_notes(entry: Entry, placements_text: list[str] | None = None) -> str:
         parts.append("\n\n".join(entry.description))
     if entry.sources:
         parts.append("Sources:\n" + "\n".join(entry.sources))
+    if entry.photos:
+        # Original photo URLs stay in the notes for provenance, as the
+        # original pipeline's raw-file notes did.
+        parts.append("Photos:\n" + "\n".join(entry.photos))
     if entry.contributors:
         parts.append("Contributed by: " + ", ".join(entry.contributors))
+    for title, paragraphs in entry.extras.items():
+        parts.append(f"{title}:\n" + "\n\n".join(paragraphs))
     return "\n\n".join(parts)
 
 

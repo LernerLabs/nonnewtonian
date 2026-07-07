@@ -64,6 +64,40 @@ class TestValidateUrl:
         with pytest.raises(PhotoError, match="look up"):
             validate_url("https://nope.example/x.jpg", resolver=_fake_resolver({}))
 
+    def test_invalid_ports_raise_photoerror_not_valueerror(self):
+        """M1 review: urlparse's .port raises bare ValueError — in the
+        web app that's a 500 on a teacher-pasted URL."""
+        for url in ["http://example.com:99999/x.jpg", "http://example.com:0x50/x.jpg"]:
+            with pytest.raises(PhotoError, match="invalid host or port"):
+                validate_url(url, resolver=_fake_resolver({}))
+
+    def test_malformed_bracketed_host_raises_photoerror(self):
+        """urlparse itself can raise before our checks run."""
+        with pytest.raises(PhotoError):
+            validate_url(
+                "http://[::1]\\@public.example/", resolver=_fake_resolver({})
+            )
+
+    def test_backslash_and_userinfo_rejected(self):
+        """Parser-differential SSRF defense: urllib.parse and the HTTP
+        client can disagree about exotic authorities, so the accepted
+        subset excludes them entirely."""
+        with pytest.raises(PhotoError, match="backslash"):
+            validate_url("http://good.example\\@evil.example/x.jpg",
+                         resolver=_fake_resolver({}))
+        with pytest.raises(PhotoError, match="username"):
+            validate_url("http://user@host.example/x.jpg",
+                         resolver=_fake_resolver({"host.example": "93.184.216.34"}))
+
+    def test_nat64_prefix_rejected(self):
+        """64:ff9b::/96 is is_global but reaches private IPv4 through a
+        NAT64 gateway."""
+        with pytest.raises(PhotoError, match="private or internal"):
+            validate_url(
+                "http://nat64.example/x.jpg",
+                resolver=_fake_resolver({"nat64.example": "64:ff9b::a9fe:a9fe"}),
+            )
+
 
 class TestImageHandling:
     def test_sniff_rejects_html_error_pages(self):
@@ -82,15 +116,15 @@ class TestImageHandling:
         _, ext, _, _ = normalize_image(buffer.getvalue())
         assert ext == "png"
 
+    @pytest.mark.filterwarnings("ignore::PIL.Image.DecompressionBombWarning")
     def test_decompression_bomb_rejected(self):
-        # A tiny file that decodes to an enormous bitmap.
+        """A tiny file that decodes to an enormous bitmap.  The check is
+        local (header dimensions vs MAX_PIXELS) — a process-global
+        warnings filter that other code could reset is not involved
+        (M1 review finding), so no global state is touched here either."""
         buffer = io.BytesIO()
-        Image.MAX_IMAGE_PIXELS = None  # allow *creating* it in the test
-        try:
-            Image.new("1", (40000, 40000)).save(buffer, format="PNG")
-        finally:
-            Image.MAX_IMAGE_PIXELS = 30_000_000
-        with pytest.raises(PhotoError):
+        Image.new("1", (12000, 12000)).save(buffer, format="PNG")  # 144 Mpx > 30 Mpx cap
+        with pytest.raises(PhotoError, match="implausibly large"):
             normalize_image(buffer.getvalue())
 
     def test_store_bytes_content_hash_layout(self, tmp_path):
@@ -102,6 +136,95 @@ class TestImageHandling:
         again = store_bytes(_jpeg_bytes(), tmp_path)
         assert again.path == stored.path
         assert sum(1 for _ in tmp_path.rglob("*.jpg")) == 1
+
+
+class _FakeResponse:
+    def __init__(self, status=200, body=b"", headers=None):
+        self.status_code = status
+        self._body = body
+        self.headers = headers or {}
+        self.is_redirect = status in (301, 302, 303, 307, 308) and "Location" in self.headers
+        self.is_permanent_redirect = status in (301, 308) and "Location" in self.headers
+
+    def iter_content(self, chunk_size=65536):
+        for i in range(0, len(self._body), chunk_size):
+            yield self._body[i : i + chunk_size]
+
+
+class _FakeSession:
+    """Scripted responses keyed by URL; records what was requested."""
+
+    def __init__(self, responses):
+        self.responses = responses
+        self.requested = []
+
+    def get(self, url, **kwargs):
+        self.requested.append(url)
+        return self.responses[url]
+
+
+class TestFetchPhoto:
+    """fetch_photo had zero coverage: a mutation run showed the status
+    check, size cap, and per-hop revalidation could all be deleted with
+    the suite green (M1 review finding)."""
+
+    RESOLVER = staticmethod(
+        _fake_resolver(
+            {"pub.example": "93.184.216.34", "evil.example": "10.0.0.5"}
+        )
+    )
+
+    def _fetch(self, session, url, tmp_path):
+        from nonnewtonian.photos import fetch_photo
+
+        return fetch_photo(url, tmp_path, session=session, resolver=self.RESOLVER)
+
+    def test_success_stores_normalized_image(self, tmp_path):
+        session = _FakeSession(
+            {"https://pub.example/a.jpg": _FakeResponse(body=_jpeg_bytes())}
+        )
+        stored = self._fetch(session, "https://pub.example/a.jpg", tmp_path)
+        assert stored.path.exists()
+        assert stored.original_url == "https://pub.example/a.jpg"
+
+    def test_non_200_raises_with_status_in_message(self, tmp_path):
+        session = _FakeSession({"https://pub.example/a.jpg": _FakeResponse(status=404)})
+        with pytest.raises(PhotoError, match="404"):
+            self._fetch(session, "https://pub.example/a.jpg", tmp_path)
+
+    def test_oversize_body_rejected(self, tmp_path):
+        from nonnewtonian.photos import MAX_BYTES
+
+        big = b"\xff\xd8\xff" + b"\x00" * (MAX_BYTES + 1)
+        session = _FakeSession({"https://pub.example/a.jpg": _FakeResponse(body=big)})
+        with pytest.raises(PhotoError, match="larger than"):
+            self._fetch(session, "https://pub.example/a.jpg", tmp_path)
+
+    def test_redirect_to_private_host_rejected(self, tmp_path):
+        """Per-hop revalidation: hop 1 is public, hop 2 resolves private."""
+        session = _FakeSession(
+            {
+                "https://pub.example/a.jpg": _FakeResponse(
+                    status=302, headers={"Location": "https://evil.example/b.jpg"}
+                ),
+                "https://evil.example/b.jpg": _FakeResponse(body=_jpeg_bytes()),
+            }
+        )
+        with pytest.raises(PhotoError, match="private or internal"):
+            self._fetch(session, "https://pub.example/a.jpg", tmp_path)
+        # It never actually requested the private host.
+        assert session.requested == ["https://pub.example/a.jpg"]
+
+    def test_redirect_loop_bounded(self, tmp_path):
+        session = _FakeSession(
+            {
+                "https://pub.example/a.jpg": _FakeResponse(
+                    status=302, headers={"Location": "https://pub.example/a.jpg"}
+                )
+            }
+        )
+        with pytest.raises(PhotoError, match="redirects"):
+            self._fetch(session, "https://pub.example/a.jpg", tmp_path)
 
 
 class TestPptxRecovery:

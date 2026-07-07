@@ -59,17 +59,32 @@ def test_emmy_noether_two_chapters(entries):
     assert chapters == [9, 10]
 
 
-def test_bare_topic_tail_becomes_label():
-    """'Chapter 27, Nuclear Fission' (E.C.G. Sudarshan): the old code
-    just printed 'Unknown textbook part'; here it is kept as a label."""
-    line = (
-        "Knight, Physics for Scientists and Engineers: A Strategic Approach "
-        "with Modern Physics, 3rd Edition, Chapter 27, Nuclear Fission"
+def test_bare_topic_tail_becomes_label(entries):
+    """'Chapter 27, Nuclear Fission' (E.C.G. Sudarshan's REAL line — the
+    M1 review caught this test using a made-up calc-3rd variant): the
+    old code just printed 'Unknown textbook part'; here it is kept as a
+    label and the placement is flagged for review."""
+    line = next(
+        raw
+        for raw in entries["ECGeorgeSudarshan.txt"].placements_raw
+        if "Nuclear Fission" in raw
     )
     placement = parse_placement(line)
-    assert placement.textbook_key == "knight-calc-3rd"
+    assert placement.textbook_key == "knight-college-2nd"
     assert placement.chapter == 27
     assert placement.extra_label == "Nuclear Fission"
+    assert "unparsed-tail" in placement.flags
+
+
+def test_second_chapter_on_one_line_never_overwrites():
+    """M1 review: a second 'Chapter N' part clobbered the first with no
+    flag — the audited silent-drop class reincarnated.  Never again."""
+    placement = parse_placement(
+        "Matter and Interactions 4th Edition, Chapter 3, Chapter 11"
+    )
+    assert placement.chapter == 3  # first wins
+    assert "multiple-chapters-on-one-line" in placement.flags
+    assert "Chapter 11" in (placement.extra_label or "")
 
 
 def test_int_crash_grammars_do_not_crash():

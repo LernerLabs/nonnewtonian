@@ -115,12 +115,23 @@ def iter_blocks(text: str):
         yield header, body
 
 
-def _join_wrapped(pieces: list[str]) -> str:
+def _looks_like_url(token: str) -> bool:
+    return "://" in token or "www." in token
+
+
+def _join_wrapped(pieces: list[str], join_events: list[str] | None = None) -> str:
     """Join stripped lines of one paragraph with spaces — except when a
-    line broke inside a URL: three files in the corpus hard-wrap URLs at
-    a hyphen (``...pioneers-`` / ``technology-...``), and joining those
-    with a space corrupts the link.  If the accumulating text ends in a
-    URL token that ends with ``-``, the next line continues it directly.
+    line broke inside a token.  The corpus (audited, then re-audited by
+    the M1 adversarial review) wraps mid-token in three ways, all of
+    which a plain space-join corrupts:
+
+    - URLs wrapped at a hyphen (``...pioneers-`` / ``technology-...``),
+      including scheme-less markdown-link text (``[www.pbs.org/...-``);
+    - URLs wrapped at a slash (``.../`` / ``mad/physics/henry.html``) —
+      but two *separate* URLs on adjacent lines must stay separate;
+    - prose hyphenation (``two-`` / ``dimensional``), joined only when
+      the next line starts lowercase, and reported via ``join_events``
+      so callers can flag it for human review rather than guess silently.
     """
     text = ""
     for piece in pieces:
@@ -128,18 +139,32 @@ def _join_wrapped(pieces: list[str]) -> str:
             text = piece
             continue
         last_token = text.rsplit(None, 1)[-1]
-        if "://" in last_token and last_token.endswith("-"):
+        first_token = piece.split(None, 1)[0]
+        if _looks_like_url(last_token) and last_token.endswith("-"):
+            text += piece
+        elif (
+            _looks_like_url(last_token)
+            and last_token.endswith("/")
+            and "/" in first_token
+            and not _looks_like_url(first_token)
+        ):
+            text += piece
+        elif last_token.endswith("-") and not _looks_like_url(last_token) and piece[:1].islower():
+            if join_events is not None:
+                join_events.append(last_token + first_token)
             text += piece
         else:
             text += " " + piece
     return text
 
 
-def unwrap_paragraphs(lines: list[str]) -> list[str]:
+def unwrap_paragraphs(lines: list[str], join_events: list[str] | None = None) -> list[str]:
     """Join hard-wrapped lines into paragraphs; blank lines separate them.
 
     Trailing whitespace (including markdown two-space soft breaks) is
-    stripped per line before joining.
+    stripped per line before joining.  ``join_events`` (if given)
+    collects prose words rejoined across a hyphen line break, so callers
+    can surface them for review.
     """
     paragraphs: list[str] = []
     current: list[str] = []
@@ -148,15 +173,21 @@ def unwrap_paragraphs(lines: list[str]) -> list[str]:
         if stripped:
             current.append(stripped)
         elif current:
-            paragraphs.append(_join_wrapped(current))
+            paragraphs.append(_join_wrapped(current, join_events))
             current = []
     if current:
-        paragraphs.append(_join_wrapped(current))
+        paragraphs.append(_join_wrapped(current, join_events))
     return paragraphs
 
 
 def _nonempty_lines(lines: list[str]) -> list[str]:
     return [line.strip() for line in lines if line.strip()]
+
+
+def _unescape_line(line: str) -> str:
+    r"""Reverse entry_to_text's escaping: a body line emitted as ``\#...``
+    was a content line that starts with ``#``, not a header."""
+    return line[1:] if line.startswith("\\#") else line
 
 
 def parse(text: str) -> Entry:
@@ -184,7 +215,7 @@ def parse(text: str) -> Entry:
             flags.append(f"merged-repeated-header:{title}")
             # Blank separator keeps paragraph boundaries between merged blocks.
             blocks[key].append("")
-        blocks.setdefault(key, []).extend(body)
+        blocks.setdefault(key, []).extend(_unescape_line(line) for line in body)
 
     name_lines = _nonempty_lines(blocks.pop("name", []))
     if not name_lines:
@@ -196,11 +227,12 @@ def parse(text: str) -> Entry:
         flags.append("extra-lines-under-name")
     name = name_lines[0]
 
+    join_events: list[str] = []
     entry = Entry(
         name=name,
         placements_raw=_nonempty_lines(blocks.pop("textbook", [])),
-        description=unwrap_paragraphs(blocks.pop("description", [])),
-        sources=unwrap_paragraphs(blocks.pop("sources", [])),
+        description=unwrap_paragraphs(blocks.pop("description", []), join_events),
+        sources=unwrap_paragraphs(blocks.pop("sources", []), join_events),
         photos=_nonempty_lines(blocks.pop("photo", [])),
         contributors=_nonempty_lines(blocks.pop("contributors", [])),
         flags=flags,
@@ -212,37 +244,88 @@ def parse(text: str) -> Entry:
     if preamble:
         entry.extras["Preamble"] = unwrap_paragraphs(preamble)
     for key, body in blocks.items():
-        content = unwrap_paragraphs(body)
+        content = unwrap_paragraphs(body, join_events)
         if content:
             entry.extras[display_titles[key]] = content
+    # Prose hyphen-joins are a judgment call: surface them for review.
+    entry.flags.extend(f"hyphen-wrap-joined:{word}" for word in join_events)
     return entry
 
 
 def parse_file(path) -> Entry:
-    """Parse a scientist file from disk (UTF-8, NFC-normalized)."""
+    """Parse a scientist file from disk (UTF-8, BOM-tolerant, NFC)."""
     import unicodedata
 
-    with open(path, encoding="utf-8") as handle:
+    # utf-8-sig: a leading BOM would otherwise hide '# Name' and produce
+    # a baffling "no Name block" error (M1 review finding).
+    with open(path, encoding="utf-8-sig") as handle:
         return parse(unicodedata.normalize("NFC", handle.read()))
+
+
+def _escape_line(line: str) -> str:
+    r"""Content lines starting with ``#`` would be re-read as headers;
+    emit them as ``\#...`` (parse unescapes).  Without this, a paragraph
+    like '#1 ranked physicist' silently vanished on round-trip (M1
+    adversarial review finding)."""
+    return "\\" + line if line.startswith("#") else line
+
+
+def _validate_items(kind: str, items: list[str]) -> None:
+    for item in items:
+        if "\n" in item:
+            raise ValueError(
+                f"{kind} contains an embedded newline: {item!r}. "
+                "Split it into separate items/paragraphs instead — a "
+                "silent rewrite here would break the round-trip contract."
+            )
 
 
 def entry_to_text(entry: Entry) -> str:
     """Emit the canonical plain-text form of an entry.
 
-    ``parse(entry_to_text(e)) == e`` for all entries (flags excluded).
+    ``parse(entry_to_text(e)) == e`` (flags excluded) for every entry
+    this function accepts.  It rejects — with a clear ValueError, never
+    a silent rewrite — entries that cannot survive the text format:
+    items/paragraphs with embedded newlines, and extras keys that
+    collide with a standard header (e.g. ``extras={'Photos': ...}``
+    would fold into the photos field on re-parse).
     """
+    _validate_items("name", [entry.name])
+    for kind, items in (
+        ("placements_raw", entry.placements_raw),
+        ("description", entry.description),
+        ("sources", entry.sources),
+        ("photos", entry.photos),
+        ("contributors", entry.contributors),
+    ):
+        _validate_items(kind, items)
+    for title, paragraphs in entry.extras.items():
+        key = _ALIASES.get(title.casefold(), title.casefold())
+        if key in _KNOWN or key == "name":
+            raise ValueError(
+                f"extras key {title!r} collides with the standard "
+                f"{_CANONICAL_TITLES[key]!r} header; put that content in "
+                "the corresponding Entry field instead."
+            )
+        _validate_items(f"extras[{title!r}]", paragraphs)
+
     chunks: list[str] = []
 
     def block(title: str, paragraphs: list[str]) -> None:
         if paragraphs:
-            chunks.append(f"# {title}\n" + "\n\n".join(paragraphs))
+            escaped = ["\n".join(_escape_line(l) for l in p.split("\n")) for p in paragraphs]
+            chunks.append(f"# {title}\n" + "\n\n".join(escaped))
 
-    block("Name", [entry.name])
-    block("Textbook", ["\n".join(entry.placements_raw)] if entry.placements_raw else [])
+    def line_block(title: str, items: list[str]) -> None:
+        if items:
+            chunks.append(f"# {title}\n" + "\n".join(_escape_line(i) for i in items))
+
+    line_block("Name", [entry.name])
+    line_block("Textbook", entry.placements_raw)
     block("Description", entry.description)
     block("Sources", entry.sources)
-    block("Photo", ["\n".join(entry.photos)] if entry.photos else [])
-    block("Contributors", ["\n".join(entry.contributors)] if entry.contributors else [])
+    line_block("Photo", entry.photos)
+    line_block("Contributors", entry.contributors)
     for title, paragraphs in entry.extras.items():
         block(title, paragraphs)
     return "\n\n".join(chunks) + "\n"

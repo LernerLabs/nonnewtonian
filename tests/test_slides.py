@@ -48,6 +48,30 @@ def test_notes_are_formatted_not_raw_markup(tmp_path):
     assert "Sources:" in notes
 
 
+def test_notes_preserve_photo_urls_and_extras():
+    """M1 review: the original's raw-file notes kept photo URLs and
+    unknown-header content; format_notes must too (provenance parity)."""
+    from nonnewtonian import Entry
+
+    entry = Entry(
+        name="X Y",
+        description=["A physicist."],
+        photos=["https://example.org/x.jpg"],
+        extras={"Quotes": ["Something memorable."]},
+    )
+    notes = format_notes(entry)
+    assert "https://example.org/x.jpg" in notes
+    assert "Quotes:" in notes and "Something memorable." in notes
+
+
+def test_notes_placements_text_override():
+    from nonnewtonian import Entry
+
+    entry = Entry(name="X Y", placements_raw=["Raw line"])
+    notes = format_notes(entry, placements_text=["Chapter 3 - Vectors"])
+    assert "Chapter 3 - Vectors" in notes and "Raw line" not in notes
+
+
 def test_photoless_entry_gets_a_text_slide():
     """Ursula Franklin has no photo; the original skipped her entirely."""
     entry = parse_file(SCIENTISTS / "UrsulaFranklin.txt")

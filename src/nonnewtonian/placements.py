@@ -105,6 +105,13 @@ def parse_placement(line: str) -> Placement:
             continue
         chapter_match = _CHAPTER_RE.match(part)
         if chapter_match:
+            if placement.chapter is not None:
+                # Never silently overwrite — the original pipeline's
+                # signature failure mode.  The extra chapter stays in
+                # the tail (and raw_line) and gets a review flag.
+                placement.flags.append("multiple-chapters-on-one-line")
+                extra_parts.append(part)
+                continue
             placement.chapter = int(chapter_match.group(1))
             tail = chapter_match.group(2).strip()
             if tail:

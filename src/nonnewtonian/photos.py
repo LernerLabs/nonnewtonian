@@ -26,7 +26,6 @@ import hashlib
 import io
 import ipaddress
 import socket
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -35,12 +34,19 @@ import requests
 from PIL import Image
 
 # A generous ceiling for legitimate portraits; a hard error beyond it.
-Image.MAX_IMAGE_PIXELS = 30_000_000
-warnings.simplefilter("error", Image.DecompressionBombWarning)
+# Checked explicitly in normalize_image — deliberately NOT via
+# Image.MAX_IMAGE_PIXELS / warnings.simplefilter, which are process
+# globals any other code can reset (M1 adversarial review finding),
+# and which a library should not mutate at import time anyway.
+MAX_PIXELS = 30_000_000
 
 MAX_BYTES = 8 * 1024 * 1024
 FETCH_TIMEOUT = 5.0
 MAX_REDIRECTS = 5
+
+# The NAT64 well-known prefix passes ipaddress.is_global but can reach
+# private IPv4 space through a NAT64 gateway.
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
 
 _MAGIC = {
     b"\xff\xd8\xff": "jpg",
@@ -66,21 +72,48 @@ class StoredPhoto:
 
 
 def validate_url(url: str, *, resolver=socket.getaddrinfo) -> None:
-    """Reject URLs this server must never fetch.  Raises PhotoError."""
-    parsed = urlparse(url)
+    """Reject URLs this server must never fetch.  Raises PhotoError.
+
+    Every rejection is a PhotoError with a teacher-readable message —
+    including the paths where urllib.parse itself raises (invalid ports,
+    malformed bracketed hosts; M1 review findings).
+
+    Parser-differential note: urllib.parse and the HTTP client can split
+    exotic authorities differently (e.g. a backslash or userinfo in the
+    netloc), so a host validated here might not be the host connected
+    to.  Defense: reject backslashes and userinfo outright, so the
+    accepted subset parses identically everywhere.  Full pin-to-vetted-IP
+    lands with the web app wiring (M4).
+    """
+    if "\\" in url:
+        raise PhotoError("That link contains a backslash, which is not valid in a web link.")
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        raise PhotoError("That doesn't look like a valid web link.") from None
     if parsed.scheme not in {"http", "https"}:
         raise PhotoError(f"Only http/https photo links work (got {parsed.scheme!r}).")
-    if not parsed.hostname:
+    if "@" in parsed.netloc:
+        raise PhotoError("Links with an embedded username are not supported.")
+    try:
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        raise PhotoError("That link has an invalid host or port.") from None
+    if not hostname:
         raise PhotoError("That link has no host name.")
     try:
-        infos = resolver(parsed.hostname, parsed.port or 0)
-    except socket.gaierror:
-        raise PhotoError(f"Could not look up {parsed.hostname!r}.") from None
+        infos = resolver(hostname, port or 0)
+    except (socket.gaierror, UnicodeError):
+        raise PhotoError(f"Could not look up {hostname!r}.") from None
     if not infos:
-        raise PhotoError(f"Could not look up {parsed.hostname!r}.")
+        raise PhotoError(f"Could not look up {hostname!r}.")
     for info in infos:
-        address = ipaddress.ip_address(info[4][0])
-        if not address.is_global:
+        try:
+            address = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            raise PhotoError(f"Could not look up {hostname!r}.") from None
+        if not address.is_global or (address.version == 6 and address in _NAT64):
             raise PhotoError(
                 "That link points at a private or internal address, "
                 "which this site will not fetch."
@@ -107,6 +140,14 @@ def normalize_image(data: bytes) -> tuple[bytes, str, int, int]:
     sniff_image_type(data)
     try:
         with Image.open(io.BytesIO(data)) as image:
+            # Header dimensions are available before decoding: reject
+            # decompression bombs with a local, unconditional check that
+            # no global warnings-filter state can disable.
+            if image.width * image.height > MAX_PIXELS:
+                raise PhotoError(
+                    f"That image is implausibly large "
+                    f"({image.width}x{image.height} pixels)."
+                )
             image.load()
             has_alpha = image.mode in ("RGBA", "LA", "P") and (
                 image.mode != "P" or "transparency" in image.info
@@ -121,7 +162,8 @@ def normalize_image(data: bytes) -> tuple[bytes, str, int, int]:
             return buffer.getvalue(), ext, image.width, image.height
     except PhotoError:
         raise
-    except Image.DecompressionBombWarning:
+    except Image.DecompressionBombError:
+        # Pillow's own (default, ~178M-pixel) ceiling tripped at open().
         raise PhotoError("That image is implausibly large.") from None
     except Exception as exc:  # Pillow raises many types on bad files
         raise PhotoError(f"Could not read that image file ({exc}).") from None
@@ -185,7 +227,9 @@ def extract_pptx_images(pptx_path) -> list[tuple[bytes, str]]:
 
     images: list[tuple[bytes, str]] = []
     with zipfile.ZipFile(pptx_path) as archive:
-        for name in sorted(archive.namelist()):
+        # Archive order, as documented — lexicographic sorting would put
+        # image10 before image2.
+        for name in archive.namelist():
             if name.startswith("ppt/media/"):
                 ext = name.rsplit(".", 1)[-1].lower()
                 if ext in {"jpg", "jpeg", "png", "gif", "webp"}:

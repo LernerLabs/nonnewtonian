@@ -108,7 +108,11 @@ def repair_doubled_quotes(text: str) -> str:
     repaired = []
     for line in text.split("\n"):
         stripped = line.rstrip()
-        if stripped.endswith('""') and not stripped.endswith('"""'):
+        if (
+            stripped.endswith('""')
+            and not stripped.endswith('"""')
+            and not stripped.endswith(',""')  # a legitimately empty quoted field
+        ):
             line = stripped[:-1]
         repaired.append(line)
     return "\n".join(repaired)
