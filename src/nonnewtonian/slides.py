@@ -23,9 +23,52 @@ from pathlib import Path
 
 from PIL import Image
 from pptx import Presentation
+from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches, Pt
 
 from .parser import Entry
+
+
+def _register_notes_master(prs: Presentation) -> None:
+    """Add the missing ``<p:notesMasterIdLst>`` to presentation.xml.
+
+    When python-pptx lazily creates a notes slide it writes the
+    notesMaster *part* and its relationship but never registers it in
+    presentation.xml.  PowerPoint silently repairs that inconsistency;
+    strict modern Keynote rejects the whole file ("can't be imported")
+    — which is why even the original project's decks won't open in
+    current Keynote.  This makes the notesMaster declared and consistent
+    so the file opens everywhere.  Idempotent; a no-op when the deck has
+    no notes.
+    """
+    pres = prs.part._element
+    if pres.find(qn("p:notesMasterIdLst")) is not None:
+        return
+    notes_rid = next(
+        (rel.rId for rel in prs.part.rels.values()
+         if rel.reltype.endswith("/notesMaster")),
+        None,
+    )
+    if notes_rid is None:
+        return
+    id_lst = pres.makeelement(qn("p:notesMasterIdLst"), {})
+    master_id = pres.makeelement(qn("p:notesMasterId"), {qn("r:id"): notes_rid})
+    id_lst.append(master_id)
+    # Schema order: notesMasterIdLst must follow sldMasterIdLst and
+    # precede sldIdLst.
+    sld_master = pres.find(qn("p:sldMasterIdLst"))
+    sld_master.addnext(id_lst)
+
+
+def save_presentation(prs: Presentation, path) -> None:
+    """Save a deck, first making it strict-Keynote-openable.
+
+    Prefer this over ``prs.save`` for any deck built here; the build
+    helpers already call ``_register_notes_master`` before returning, so
+    this is the belt-and-suspenders path for decks assembled elsewhere.
+    """
+    _register_notes_master(prs)
+    prs.save(path)
 
 _TITLE_ONLY_LAYOUT = 5
 _MARGIN_TOP = Inches(1.75)
@@ -123,6 +166,7 @@ def build_entry_slide(entry: Entry, image_paths: list[Path],
     """A standalone one-scientist presentation (the Download Slide file)."""
     prs = Presentation()
     add_entry_slides(prs, entry, image_paths, placements_text)
+    _register_notes_master(prs)
     return prs
 
 
@@ -147,4 +191,5 @@ def build_deck(chapters: list[DeckChapter], *, deck_title: str | None = None) ->
                 continue
             seen.add(entry.name)
             add_entry_slides(prs, entry, image_paths)
+    _register_notes_master(prs)
     return prs

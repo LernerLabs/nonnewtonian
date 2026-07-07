@@ -8,7 +8,9 @@ from pptx import Presentation
 
 from nonnewtonian.parser import parse_file
 from nonnewtonian.photos import extract_pptx_images, store_bytes
-from nonnewtonian.slides import DeckChapter, add_entry_slides, build_deck, build_entry_slide, format_notes
+from pptx.oxml.ns import qn
+
+from nonnewtonian.slides import DeckChapter, add_entry_slides, build_deck, build_entry_slide, format_notes, save_presentation
 
 from conftest import FIXTURES, SCIENTISTS
 
@@ -121,6 +123,58 @@ def test_deck_is_chapter_ordered_with_dividers(tmp_path):
     assert "Emmy Noether" in titles[4:6] and "Ursula Franklin" in titles[4:6]
     assert titles[6].startswith("Chapter 30")
     assert titles[7] == "Chien-Shiung Wu"
+
+
+def _has_notes_master_idlst(prs) -> bool:
+    return prs.part._element.find(qn("p:notesMasterIdLst")) is not None
+
+
+def test_notes_master_is_registered_so_keynote_opens_it(tmp_path):
+    """Regression for the Keynote 'can't be imported' bug: python-pptx
+    creates a notes slide whose notesMaster is never declared in
+    presentation.xml, which strict Keynote rejects.  Every deck we ship
+    that has notes must register the notesMaster.  (Verified in Keynote
+    on 2026-07-07: without this, an empty title slide opens but any deck
+    with notes fails to import; with it, both open.)"""
+    entry = parse_file(SCIENTISTS / "EmmyNoether.txt")
+    prs = build_entry_slide(entry, [])
+    assert _has_notes_master_idlst(prs)
+    # It survives a save/reopen and the notes text is intact.
+    reopened = _reopen(prs)
+    assert _has_notes_master_idlst(reopened)
+    notes = list(reopened.slides)[0].notes_slide.notes_text_frame.text
+    assert "Emmy Noether" in notes
+
+
+def test_register_notes_master_is_idempotent_and_noop_without_notes(tmp_path):
+    from nonnewtonian.slides import _register_notes_master
+
+    # A deck with a picture but no notes has no notesMaster to register.
+    from pptx import Presentation
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[5])
+    slide.shapes.title.text = "No notes"
+    _register_notes_master(prs)
+    assert not _has_notes_master_idlst(prs)
+
+    entry = parse_file(SCIENTISTS / "EmmyNoether.txt")
+    with_notes = build_entry_slide(entry, [])
+    before = with_notes.part.blob
+    _register_notes_master(with_notes)  # second call must not double-add
+    assert with_notes.part._element.findall(qn("p:notesMasterIdLst")).__len__() == 1
+
+
+def test_save_presentation_registers_notes_master(tmp_path):
+    from pptx import Presentation
+
+    entry = parse_file(SCIENTISTS / "EmmyNoether.txt")
+    prs = Presentation()
+    add_entry_slides(prs, entry, [])  # notes added, master not yet registered
+    assert not _has_notes_master_idlst(prs)
+    path = tmp_path / "out.pptx"
+    save_presentation(prs, path)
+    assert _has_notes_master_idlst(Presentation(path))
 
 
 def test_deck_dedupes_within_a_chapter(tmp_path):

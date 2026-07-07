@@ -7,6 +7,7 @@ that the hosted app (and its seed importer) builds on.
 
 from .parser import Entry, ParseError, entry_to_text, parse, parse_file
 from .placements import KNOWN_TEXTBOOKS, Placement, parse_placement, parse_placements
+from .slides import DeckChapter, build_deck, build_entry_slide, save_presentation
 from .toc import TocError, TocRow, load_toc, load_toc_file, repair_doubled_quotes
 
 __all__ = [
@@ -24,4 +25,8 @@ __all__ = [
     "load_toc",
     "load_toc_file",
     "repair_doubled_quotes",
+    "DeckChapter",
+    "build_entry_slide",
+    "build_deck",
+    "save_presentation",
 ]
