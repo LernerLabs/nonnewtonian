@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_macros.html" import entry_card %}
+{% block title %}Admin — {{ site_name }}{% endblock %}
+{% block content %}
+  <h1>Communal moderation queue</h1>
+  <p class="muted">{{ pending|length }} entries awaiting review &middot; {{ approved_count }} approved and live.</p>
+
+  {% if pending %}
+    <form class="inline" method="post" action="{{ url_for('admin.approve_all_seeds', token=token) }}">
+      <button type="submit">Approve all seeded entries</button>
+    </form>
+  {% else %}
+    <p>Nothing pending. <a href="{{ url_for('public.scientists') }}">View the public collection &rarr;</a></p>
+  {% endif %}
+
+  {% for entry in pending %}
+    <div style="border:1px solid var(--rule);border-radius:8px;padding:.6rem 1rem;margin:1rem 0;">
+      {{ entry_card(entry, show_placements=True) }}
+      <div class="admin-actions">
+        <form class="inline" method="post" action="{{ url_for('admin.moderate', token=token, entry_id=entry.id, action='approve') }}">
+          <button type="submit">Approve &amp; publish</button>
+        </form>
+        <form class="inline" method="post" action="{{ url_for('admin.moderate', token=token, entry_id=entry.id, action='reject') }}">
+          <button type="submit" class="secondary">Reject</button>
+        </form>
+      </div>
+    </div>
+  {% endfor %}
+{% endblock %}

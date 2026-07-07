@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}For students — {{ site_name }}{% endblock %}
+{% block content %}
+  <h1>For students</h1>
+  <p>The idea is simple: find a scientist who has made a real contribution to physics and who isn't
+    one of the handful of famous names in the front of the textbook, and figure out where in your
+    course their work fits.</p>
+  <h2>How to write a good entry</h2>
+  <ul class="cardlist">
+    <li><strong>Who are they?</strong> Name, when and where they worked, a sentence of context.</li>
+    <li><strong>What did they do?</strong> The contribution, and why it mattered to physics.</li>
+    <li><strong>Where does it fit?</strong> A chapter of your textbook — and a sentence on why.</li>
+    <li><strong>Cite your sources.</strong> Wikipedia is fine. Quote if you like, but don't
+      plagiarize.</li>
+    <li><strong>Add a photo</strong> if you can, ideally from a source that allows reuse
+      (<a href="https://commons.wikimedia.org/">Wikimedia Commons</a>, the
+      <a href="https://www.ifthencollection.org/">IF/THEN Collection</a>).</li>
+  </ul>
+  <p class="muted">Try to pick someone nobody else in your class is writing about — check the
+    <a href="{{ url_for('public.scientists') }}">collection</a> and the
+    <a href="{{ url_for('public.wanted') }}">wanted list</a> first.</p>
+{% endblock %}

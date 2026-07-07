@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}For teachers — {{ site_name }}{% endblock %}
+{% block content %}
+  <h1>For teachers</h1>
+
+  <h2>Just want a slide for tomorrow?</h2>
+  <p>You don't need an account or any software. <a href="{{ url_for('public.textbooks') }}">Open your
+    textbook</a>, scroll to the chapter you're teaching, and read the scientists placed there. Each one
+    has a "Download slide" link if you want to drop them into your own deck — but everything is fully
+    readable on the page without downloading anything.</p>
+
+  <h2>Want to run the assignment with your class?</h2>
+  <p>Class collections — where your students research and place scientists in <em>your</em> textbook,
+    and you moderate the results — are coming soon. Here is the assignment text teachers have used, to
+    adapt now:</p>
+
+  <h3>Assignment (research a new scientist)</h3>
+  <blockquote class="gap">
+    <p>This course and textbook have largely focused on ideas developed by white, European men. Your
+      task is to broaden that focus: write a paragraph about someone who has made a significant
+      contribution to physics and who is not a white European man — contemporary or historical, someone
+      you don't already know about or think should be better known. Say who they are, what they
+      contributed, why it matters, and something about their life and how it shaped their work. Then,
+      using your textbook's table of contents, tell us which chapter their contribution belongs in.
+      Include a link to a photo if you can, and cite your sources (Wikipedia is fine — don't
+      plagiarize). If you'd like your name credited publicly, include it; if not, leave it off.</p>
+  </blockquote>
+
+  <h3>Assignment (adopt &amp; re-place an existing entry)</h3>
+  <blockquote class="gap">
+    <p>Choose a scientist already in the collection, verify their writeup and check it for plagiarism,
+      add at least one new fact or image, and place them in <em>our</em> textbook — telling us which
+      chapter and why.</p>
+  </blockquote>
+
+  <p class="small muted"><strong>A note for K–12 classes:</strong> student work is published on a
+    public page. When class collections launch, the default will credit students by first name and
+    last initial only, and you'll be able to require full anonymity. You remain responsible for your
+    school's media-release and parental-consent policies.</p>
+{% endblock %}

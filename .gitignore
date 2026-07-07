@@ -9,3 +9,4 @@ data/app.db
 data/app.db-*
 data/photos/
 examples/.photo-cache/
+examples/screenshots/

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1>Scientists in the textbook you already teach</h1>
+  <p class="lede">Every introductory physics course marches through a progression of physicists who,
+    to within rounding error, all look like Newton. This is a growing, teacher-moderated collection
+    of scientists who don't — each one mapped to the exact chapter of a real textbook, ready to read
+    in your browser or drop into a lecture.</p>
+
+  <div class="paths">
+    <a class="path" href="{{ url_for('public.textbooks') }}">
+      <div class="t">Browse the collection</div>
+      <p class="small">Pick a textbook and read straight down the chapters. No account, no download,
+        nothing to install.</p>
+    </a>
+    <a class="path" href="{{ url_for('public.for_teachers') }}">
+      <div class="t">Run it with your class</div>
+      <p class="small">Have your students research and place scientists in your own textbook. (Class
+        collections are coming soon.)</p>
+    </a>
+  </div>
+
+  <h2>Textbooks</h2>
+  <ul class="cardlist">
+    {% for tb in textbooks %}
+      <li><a href="{{ url_for('public.textbook', slug=tb.slug) }}">{{ tb.title }}</a>
+        <span class="muted small">{{ tb.author }}{% if tb.edition %}, {{ tb.edition }}{% endif %}</span></li>
+    {% endfor %}
+  </ul>
+  <p class="muted small">{{ counts.scientists }} scientists in the collection across
+    {{ counts.textbooks }} textbooks &middot;
+    <a href="{{ url_for('public.wanted') }}">see who we're still looking for</a>.</p>
+{% endblock %}

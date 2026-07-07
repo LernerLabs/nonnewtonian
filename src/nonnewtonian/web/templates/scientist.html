@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ name }} — {{ site_name }}{% endblock %}
+{% block content %}
+  <p class="small"><a href="{{ url_for('public.scientists') }}">&larr; All scientists</a></p>
+  <h1>{{ name }}</h1>
+
+  {% set first = writeups[0] %}
+  {% set stored = [] %}
+  {% for w in writeups %}{% for p in w.photos %}{% if p.file_path %}{{ stored.append(p) or "" }}{% endif %}{% endfor %}{% endfor %}
+  {% if stored %}
+    <div class="detail-photos">
+      {% for p in stored %}
+        <figure style="margin:0;">
+          <img src="{{ url_for('public.photo', relpath=p.file_path) }}" alt="Portrait of {{ name }}">
+          <figcaption class="photo-note">
+            {% if p.recovered %}recovered from an archived slide{% elif not p.license_verified %}source unverified{% else %}{{ p.license }}{% endif %}
+            {% if p.original_url %}&middot; <a href="{{ p.original_url }}" rel="nofollow noopener">origin</a>{% endif %}
+          </figcaption>
+        </figure>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if first.placements %}
+    <p class="meta"><strong>Placed in:</strong>
+      {% for pl in first.placements %}
+        {% if pl.textbook_slug %}<a href="{{ url_for('public.textbook', slug=pl.textbook_slug) }}">{{ pl.textbook_title }}</a>{% elif pl.textbook_title %}{{ pl.textbook_title }}{% else %}{{ pl.raw_line }}{% endif %}{% if pl.chapter %} ch.&nbsp;{{ pl.chapter }}{% endif %}{% if pl.section_label %} ({{ pl.section_label }}){% endif %}{% if not loop.last %}; {% endif %}
+      {% endfor %}
+    </p>
+  {% endif %}
+  <p class="actions"><a href="{{ url_for('public.scientist_slide', slug=first.slug) }}">Download slide (.pptx)</a></p>
+
+  {% for w in writeups %}
+    {% if writeups|length > 1 %}<h2>Writeup {{ loop.index }}</h2>{% endif %}
+    <div class="desc">{% for para in w.description %}<p>{{ para }}</p>{% endfor %}</div>
+    {% if w.why_chapter %}<p class="small"><strong>Why this chapter:</strong> {{ w.why_chapter }}</p>{% endif %}
+    {% if w.sources %}
+      <p class="meta"><strong>Sources:</strong>
+        {% for s in w.sources %}{{ s }}{% if not loop.last %} &middot; {% endif %}{% endfor %}</p>
+    {% endif %}
+    <p class="meta">
+      {% if w.displayed_credit() %}<span class="credit">Contributed by {{ w.displayed_credit() }}.</span> {% endif %}
+      {% if w.license_notice %}<span class="pill">{{ w.license_notice }}</span>{% endif %}
+    </p>
+  {% endfor %}
+{% endblock %}

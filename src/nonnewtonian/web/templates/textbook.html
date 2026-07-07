@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_macros.html" import entry_card %}
+{% block title %}{{ textbook.title }} — {{ site_name }}{% endblock %}
+{% block content %}
+  <p class="small"><a href="{{ url_for('public.textbooks') }}">&larr; All textbooks</a></p>
+  <h1>{{ textbook.title }}</h1>
+  <p class="muted">{{ textbook.author }}{% if textbook.edition %}, {{ textbook.edition }}{% endif %}
+    &middot; {{ placed }} scientist{{ '' if placed == 1 else 's' }} placed across
+    {{ chapters|length }} chapters.</p>
+  <p class="actions">
+    <a href="{{ url_for('public.textbook_deck', slug=textbook.slug) }}">Download the whole-book slide deck (.pptx)</a>
+  </p>
+  <p class="small muted">Everything below is readable right here — no download needed. The slide links
+    are just for dropping a scientist into a lecture.</p>
+
+  {% for ch in chapters %}
+    <section class="chapter {% if not ch.entries %}empty{% endif %}">
+      <div class="chhead">
+        <span class="num">Chapter {{ ch.chapter }}</span>
+        <span class="topics">{{ ch.topics }}</span>
+      </div>
+      {% if ch.entries %}
+        {% for entry in ch.entries %}{{ entry_card(entry) }}{% endfor %}
+      {% else %}
+        <p class="gap">No one here yet — a scientist who belongs in this chapter could be your
+          class's next contribution.</p>
+      {% endif %}
+    </section>
+  {% endfor %}
+{% endblock %}

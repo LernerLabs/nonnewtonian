@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "_macros.html" import portrait %}
+{% block title %}Scientists — {{ site_name }}{% endblock %}
+{% block content %}
+  <h1>Scientists</h1>
+  <form method="get" action="{{ url_for('public.scientists') }}">
+    <input type="search" name="q" value="{{ search }}" placeholder="Search by name"
+           aria-label="Search scientists" style="font:inherit;padding:.3rem .6rem;border:1px solid var(--rule);border-radius:6px;">
+    <button type="submit">Search</button>
+  </form>
+  <p class="muted small">{{ entries|length }} scientist{{ '' if entries|length == 1 else 's' }}{% if search %} matching “{{ search }}”{% endif %}.</p>
+  <ul class="cardlist">
+    {% for e in entries %}
+      <li style="display:flex;gap:.8rem;align-items:center;">
+        <div style="flex:0 0 auto;width:56px;">
+          {% set p = e.primary_photo %}
+          {% if p %}<img src="{{ url_for('public.photo', relpath=p.file_path) }}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:6px;" loading="lazy">
+          {% else %}<div style="width:56px;height:56px;border:1px dashed var(--rule);border-radius:6px;"></div>{% endif %}
+        </div>
+        <div>
+          <a href="{{ url_for('public.scientist', slug=e.slug) }}"><strong>{{ e.name }}</strong></a>
+          {% if e.description %}<div class="small muted">{{ e.description[0][:120] }}{% if e.description[0]|length > 120 %}…{% endif %}</div>{% endif %}
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+{% endblock %}

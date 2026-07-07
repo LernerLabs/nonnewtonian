@@ -1,0 +1,50 @@
+{% macro portrait(entry) %}
+  {% set p = entry.primary_photo %}
+  <div class="portrait">
+    {% if p %}
+      <img src="{{ url_for('public.photo', relpath=p.file_path) }}"
+           alt="Portrait of {{ entry.name }}" loading="lazy">
+      {% if not p.license_verified %}
+        <div class="photo-note">
+          {% if p.recovered %}image recovered from an archived slide{% else %}source unverified{% endif %}
+          {% if p.original_url %}&middot; <a href="{{ p.original_url }}" rel="nofollow noopener">origin</a>{% endif %}
+        </div>
+      {% endif %}
+    {% else %}
+      <div class="nophoto">No photo yet<br><span class="small">(add one!)</span></div>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+{% macro entry_card(entry, show_placements=False) %}
+  <div class="entry">
+    {{ portrait(entry) }}
+    <div class="body">
+      <p class="name"><a href="{{ url_for('public.scientist', slug=entry.slug) }}">{{ entry.name }}</a></p>
+      <div class="desc">
+        {% for para in entry.description %}<p>{{ para }}</p>{% endfor %}
+      </div>
+      {% if entry.why_chapter %}<p class="small"><strong>Why here:</strong> {{ entry.why_chapter }}</p>{% endif %}
+      {% if show_placements and entry.placements %}
+        <p class="meta"><strong>Placed in:</strong>
+          {% for pl in entry.placements %}
+            {% if pl.textbook_title %}{{ pl.textbook_title }}{% else %}{{ pl.raw_line }}{% endif %}
+            {% if pl.chapter %}ch.&nbsp;{{ pl.chapter }}{% endif %}{% if pl.section_label %} ({{ pl.section_label }}){% endif %}{% if not loop.last %}; {% endif %}
+          {% endfor %}
+        </p>
+      {% endif %}
+      {% if entry.sources %}
+        <p class="meta"><strong>Sources:</strong>
+          {% for s in entry.sources %}{{ s }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+        </p>
+      {% endif %}
+      <p class="meta">
+        {% if entry.displayed_credit() %}<span class="credit">Contributed by {{ entry.displayed_credit() }}.</span> {% endif %}
+        {% if entry.license_notice %}<span class="pill">{{ entry.license_notice }}</span> {% endif %}
+      </p>
+      <p class="actions">
+        <a href="{{ url_for('public.scientist_slide', slug=entry.slug) }}">Download slide (.pptx)</a>
+      </p>
+    </div>
+  </div>
+{% endmacro %}

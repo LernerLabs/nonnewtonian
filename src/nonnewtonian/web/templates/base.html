@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ site_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="{{ url_for('public.index') }}">{{ site_name }}</a>
+    <nav>
+      <a href="{{ url_for('public.scientists') }}">Scientists</a>
+      <a href="{{ url_for('public.textbooks') }}">Textbooks</a>
+      <a href="{{ url_for('public.wanted') }}">Wanted</a>
+      <a href="{{ url_for('public.about') }}">About</a>
+      <a href="{{ url_for('public.for_teachers') }}">For teachers</a>
+    </nav>
+  </div>
+</header>
+<main>
+  <div class="wrap">
+    {% block content %}{% endblock %}
+  </div>
+</main>
+<footer class="site">
+  <div class="wrap">
+    <p><strong>{{ site_name }}</strong> — put scientists who don't look like Newton into the
+      textbook your class already uses.</p>
+    <p class="small">Shared writeups are published under
+      <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> unless a per-entry
+      notice says otherwise. Photos carry their own source and license; some are marked
+      <em>source unverified</em> pending review. To request a correction or removal, see
+      <a href="{{ url_for('public.privacy') }}">the privacy &amp; contact page</a>.</p>
+  </div>
+</footer>
+</body>
+</html>
