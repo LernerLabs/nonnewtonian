@@ -26,4 +26,30 @@
       </div>
     </div>
   {% endfor %}
+
+  <h2>Shared from classes</h2>
+  {% if not shared %}
+    <p class="muted">No class has shared an entry to the communal site yet. When a teacher approves a
+      student writeup and opts to share it, it shows up here for your review before it's copied onto
+      the public pages.</p>
+  {% else %}
+    <p class="muted">{{ shared|length }} awaiting communal review. Approving copies the writeup into an
+      independent communal entry — deleting the class later won't remove the public copy.</p>
+    {% for entry, class_name in shared %}
+      <div style="border:1px solid var(--accent);border-radius:8px;padding:.6rem 1rem;margin:1rem 0;">
+        <p class="small muted">Shared from <strong>{{ class_name }}</strong></p>
+        {{ entry_card(entry, show_placements=True) }}
+        <div class="admin-actions">
+          <form class="inline" method="post" action="{{ url_for('admin.moderate_shared', token=token, entry_id=entry.id, action='approve') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit">Approve to communal</button>
+          </form>
+          <form class="inline" method="post" action="{{ url_for('admin.moderate_shared', token=token, entry_id=entry.id, action='reject') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="secondary">Reject</button>
+          </form>
+        </div>
+      </div>
+    {% endfor %}
+  {% endif %}
 {% endblock %}

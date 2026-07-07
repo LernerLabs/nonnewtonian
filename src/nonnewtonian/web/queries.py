@@ -188,6 +188,19 @@ def list_textbooks(conn) -> list[dict]:
         "SELECT * FROM textbooks ORDER BY title COLLATE NOCASE")]
 
 
+def public_textbooks(conn) -> list[dict]:
+    """Textbooks to show on the public site: the builtin ones, plus any
+    custom (per-class) textbook that has actually accrued approved
+    communal content — so a teacher's private textbook name doesn't
+    surface publicly until a shared entry lands on it (M5)."""
+    return [dict(r) for r in conn.execute(
+        "SELECT t.* FROM textbooks t WHERE t.is_builtin=1 OR EXISTS ("
+        "  SELECT 1 FROM entries e JOIN placements p ON p.entry_id=e.id "
+        "  WHERE p.textbook_id=t.id AND e.collection_id IS NULL "
+        "  AND e.status='approved' AND e.communal_status='approved') "
+        "ORDER BY t.title COLLATE NOCASE")]
+
+
 def textbook_by_slug(conn, slug: str) -> dict | None:
     row = conn.execute("SELECT * FROM textbooks WHERE slug=?", (slug,)).fetchone()
     return dict(row) if row else None

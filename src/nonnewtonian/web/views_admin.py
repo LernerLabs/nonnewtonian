@@ -13,6 +13,7 @@ from flask import (
     Blueprint, abort, current_app, redirect, render_template, request, url_for,
 )
 
+from .. import collections_repo as repo
 from . import queries as q
 
 bp = Blueprint("admin", __name__)
@@ -41,12 +42,50 @@ def dashboard(token):
     ).fetchall()
     pending_entries = [q._row_to_entry(conn, r) for r in pending]
     approved_count = conn.execute(
-        "SELECT count(*) FROM entries WHERE communal_status='approved'"
+        "SELECT count(*) FROM entries WHERE collection_id IS NULL "
+        "AND communal_status='approved'"
     ).fetchone()[0]
+    # M5: entries a class chose to share to the communal site, awaiting
+    # your review before they're cloned onto the public pages.
+    shared = conn.execute(
+        "SELECT e.*, c.name AS class_name FROM entries e "
+        "JOIN collections c ON e.collection_id = c.id "
+        "WHERE e.share_communal=1 AND e.communal_status='pending' "
+        "ORDER BY e.scientist_name COLLATE NOCASE"
+    ).fetchall()
+    shared_entries = [(q._row_to_entry(conn, r), r["class_name"]) for r in shared]
     return render_template(
         "admin.html", token=token, pending=pending_entries,
-        approved_count=approved_count,
+        approved_count=approved_count, shared=shared_entries,
     )
+
+
+@bp.route("/admin/<token>/shared/<int:entry_id>/<action>", methods=["POST"])
+def moderate_shared(token, entry_id, action):
+    """Approve/reject a class-shared entry for the communal site (M5).
+    Approve clones it into an independent communal entry."""
+    _check_token(token)
+    if action not in ("approve", "reject"):
+        abort(400)
+    conn = _db()
+    row = conn.execute(
+        "SELECT id FROM entries WHERE id=? AND share_communal=1 "
+        "AND communal_status='pending' AND collection_id IS NOT NULL", (entry_id,)
+    ).fetchone()
+    if not row:
+        abort(404)
+    now = current_app.utcnow()
+    if action == "approve":
+        repo.clone_to_communal(conn, entry_id, now)
+        conn.execute(
+            "UPDATE entries SET communal_status='approved', updated_at=? WHERE id=?",
+            (now, entry_id))
+    else:
+        conn.execute(
+            "UPDATE entries SET communal_status='rejected', updated_at=? WHERE id=?",
+            (now, entry_id))
+    conn.commit()
+    return redirect(url_for("admin.dashboard", token=token))
 
 
 @bp.route("/admin/<token>/entry/<int:entry_id>/<action>", methods=["POST"])

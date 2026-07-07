@@ -27,12 +27,12 @@ def _inject_site():
 @bp.route("/")
 def index():
     conn = _db()
+    public_tbs = q.public_textbooks(conn)
     counts = {
         "scientists": len(q.all_approved_scientists(conn)),
-        "textbooks": len(q.list_textbooks(conn)),
+        "textbooks": len(public_tbs),
     }
-    return render_template("index.html", counts=counts,
-                           textbooks=q.list_textbooks(conn))
+    return render_template("index.html", counts=counts, textbooks=public_tbs)
 
 
 @bp.route("/scientists")
@@ -52,7 +52,7 @@ def scientist(slug):
 
 @bp.route("/textbooks")
 def textbooks():
-    return render_template("textbooks.html", textbooks=q.list_textbooks(_db()))
+    return render_template("textbooks.html", textbooks=q.public_textbooks(_db()))
 
 
 @bp.route("/textbooks/<slug>")
