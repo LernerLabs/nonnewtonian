@@ -1,0 +1,61 @@
+{
+  "textbooks": [
+    {
+      "slug": "knight-calc-3rd",
+      "title": "Physics for Scientists and Engineers: A Strategic Approach with Modern Physics",
+      "author": "Randall D. Knight",
+      "edition": "3rd Edition",
+      "discipline": "physics",
+      "csv": "knight-calc-3rd.csv",
+      "aliases": [
+        {"alias": "Knight, Physics for Scientists and Engineers: A Strategic Approach with Modern Physics, 3rd Edition", "ambiguous": 0},
+        {"alias": "Knight, Physics for Scientists and Engineers", "ambiguous": 0},
+        {"alias": "Knight, 3rd edition", "ambiguous": 1}
+      ]
+    },
+    {
+      "slug": "knight-college-2nd",
+      "title": "College Physics: A Strategic Approach",
+      "author": "Randall D. Knight, Brian Jones, Stuart Field",
+      "edition": "2nd Edition",
+      "discipline": "physics",
+      "csv": "knight-college-2nd.csv",
+      "aliases": [
+        {"alias": "Knight, College Physics: A Strategic Approach, 2nd Edition", "ambiguous": 0},
+        {"alias": "Knight, College Physics", "ambiguous": 0},
+        {"alias": "Knight, 2nd edition", "ambiguous": 1}
+      ]
+    },
+    {
+      "slug": "mandi-4th",
+      "title": "Matter and Interactions",
+      "author": "Ruth W. Chabay, Bruce A. Sherwood",
+      "edition": "4th Edition",
+      "discipline": "physics",
+      "csv": "mandi-4th.csv",
+      "aliases": [
+        {"alias": "Matter and Interactions 4th Edition", "ambiguous": 0},
+        {"alias": "Matter and Interactions", "ambiguous": 0}
+      ]
+    }
+  ],
+  "planned_textbooks": [
+    {
+      "slug": "openstax-university-physics",
+      "note": "Deferred: OpenStax University Physics ships as 3 volumes that each restart chapter numbering, so it needs a per-volume modeling decision AND verified per-volume TOCs. Only Volume 2 was fully verifiable from static sources on 2026-07-07; not shipping a partially-guessed TOC (Michael's no-known-wrong-results rule). Acquire complete per-volume TOCs and add as openstax-university-physics-v{1,2,3}."
+    },
+    {
+      "slug": "openstax-college-physics",
+      "note": "Deferred alongside University Physics: single-volume, so simpler, but the full chapter list was not verified from a static source on 2026-07-07. Acquire and add. Big adoption lever once present (OpenStax is free/openly licensed)."
+    }
+  ],
+  "wanted_scientists": [
+    {"name": "En'heduanna", "note": "Earliest known named author; astronomical observations.", "source": "README backlog"},
+    {"name": "Zhang Heng", "note": "Seismoscope, astronomy.", "source": "README backlog"},
+    {"name": "Henrietta Swan Leavitt", "note": "Cepheid period-luminosity relation.", "source": "README backlog"},
+    {"name": "Wu-Chung Lee", "note": "Listed in the original README backlog.", "source": "README backlog"},
+    {"name": "Abdus Salam", "note": "Electroweak unification; first Muslim Nobel laureate in science.", "source": "README backlog"},
+    {"name": "Ibn Sahl", "note": "Law of refraction, predating Snell.", "source": "README backlog"},
+    {"name": "Ibn al-Haytham", "note": "Optics; scientific method.", "source": "README backlog"}
+  ]
+}
