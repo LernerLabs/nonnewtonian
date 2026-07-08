@@ -1,0 +1,192 @@
+# Canonical built-in textbook (prototype TOML source-of-truth format).
+# Replaces this textbook's manifest.json entry + knight-calc-3rd.csv.
+# Teacher-pasted TOCs still arrive as CSV via /new (see toc.py).
+
+slug = "knight-calc-3rd"
+title = "Physics for Scientists and Engineers: A Strategic Approach with Modern Physics"
+author = "Randall D. Knight"
+edition = "3rd Edition"
+discipline = "physics"
+
+# Free-text names that match a placement line to this book.
+# ambiguous = true means too generic to auto-match on its own.
+[[alias]]
+text = "Knight, Physics for Scientists and Engineers: A Strategic Approach with Modern Physics, 3rd Edition"
+ambiguous = false
+
+[[alias]]
+text = "Knight, Physics for Scientists and Engineers"
+ambiguous = false
+
+[[alias]]
+text = "Knight, 3rd edition"
+ambiguous = true
+
+# Table of contents, in order. 'section' is optional.
+[[chapter]]
+number = 1
+topics = "Motion, Velocity, Acceleration"
+
+[[chapter]]
+number = 2
+topics = "1D Kinematics"
+
+[[chapter]]
+number = 3
+topics = "Vectors"
+
+[[chapter]]
+number = 4
+topics = "2D kinematics"
+
+[[chapter]]
+number = 5
+topics = "Force and Motion, Newton's 1st and 2nd laws"
+
+[[chapter]]
+number = 6
+topics = "Equilibrium, Mass, Weight, Gravity, Friction, Drag, motion along a line"
+
+[[chapter]]
+number = 7
+topics = "Newton's third law"
+
+[[chapter]]
+number = 8
+topics = "Dynamics in a plane"
+
+[[chapter]]
+number = 9
+topics = "Impulse and momentum"
+
+[[chapter]]
+number = 10
+topics = "Energy"
+
+[[chapter]]
+number = 11
+topics = "Work"
+
+[[chapter]]
+number = 12
+topics = "Rotation of a rigid body"
+
+[[chapter]]
+number = 13
+topics = "Newton's theory of Gravity"
+
+[[chapter]]
+number = 14
+topics = "Oscillations"
+
+[[chapter]]
+number = 15
+topics = "Fluids and elasticity"
+
+[[chapter]]
+number = 16
+topics = "Macroscopic description of matter"
+
+[[chapter]]
+number = 17
+topics = "Work, heat, 1st law of thermodynamics"
+
+[[chapter]]
+number = 18
+topics = "Micro/macro connection for gas/thermo, entropy, 2nd law"
+
+[[chapter]]
+number = 19
+topics = "Heat engines and refrigerators"
+
+[[chapter]]
+number = 20
+topics = "Traveling Waves"
+
+[[chapter]]
+number = 21
+topics = "Superposition"
+
+[[chapter]]
+number = 22
+topics = "Wave Optics"
+
+[[chapter]]
+number = 23
+topics = "Ray Optics"
+
+[[chapter]]
+number = 24
+topics = "Optical Instruments"
+
+[[chapter]]
+number = 25
+topics = "Electric Charges and Forces"
+
+[[chapter]]
+number = 26
+topics = "The Electric Field"
+
+[[chapter]]
+number = 27
+topics = "Gauss's Law"
+
+[[chapter]]
+number = 28
+topics = "The Electric Potential"
+
+[[chapter]]
+number = 29
+topics = "Potential and Field"
+
+[[chapter]]
+number = 30
+topics = "Current and Resistance"
+
+[[chapter]]
+number = 31
+topics = "Fundamentals of Circuits"
+
+[[chapter]]
+number = 32
+topics = "The Magnetic Field"
+
+[[chapter]]
+number = 33
+topics = "Electromagnetic Induction"
+
+[[chapter]]
+number = 34
+topics = "Electromagnetic Fields and Waves"
+
+[[chapter]]
+number = 35
+topics = "AC Circuits"
+
+[[chapter]]
+number = 36
+topics = "Relativity"
+
+[[chapter]]
+number = 37
+topics = "The Foundations of Modern Physics"
+
+[[chapter]]
+number = 38
+topics = "Quantization"
+
+[[chapter]]
+number = 39
+topics = "Wave Functions and Uncertainty"
+
+[[chapter]]
+number = 40
+topics = "One-Dimensional Quantum Mechanics"
+
+[[chapter]]
+number = 41
+topics = "Atomic Physics"
+
+[[chapter]]
+number = 42
+topics = "Nuclear Physics"
