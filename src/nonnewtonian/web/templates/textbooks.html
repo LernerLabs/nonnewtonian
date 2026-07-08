@@ -2,8 +2,8 @@
 {% block title %}Textbooks — {{ site_name }}{% endblock %}
 {% block content %}
   <h1>Textbooks</h1>
-  <p class="muted">Each scientist is placed at the chapter of a real textbook. Pick yours and read
-    down the chapters.</p>
+  <p class="muted">Each scientist is placed at the chapter of a real textbook. Open the one your
+    course uses.</p>
   {% for tb in textbooks %}
     <a class="tb" href="{{ url_for('public.textbook', slug=tb.slug) }}">
       <span class="t">{{ tb.title }}</span>
