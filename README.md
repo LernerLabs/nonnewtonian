@@ -11,11 +11,16 @@ textbook, teachers moderate via a magic link, and every approved entry
 lands on a chapter-indexed public page with a ready-to-teach PowerPoint
 slide. No accounts; nothing for teachers or students to install.
 
-Status: **M1 of 8** — `nonnewtonian`, the core library, ported from the
-original `makesyllabus.py` with every audited bug fixed and the 39 real
-scientist files as its acceptance suite. The Flask app arrives in later
-milestones; the full implementation plan (design, milestones, and the
-adversarial review that shaped it) lives in Michael's reports repo.
+Status: **M6 of 8 done** — the core library (`nonnewtonian`, ported from
+the original `makesyllabus.py` with every audited bug fixed and the 39
+real scientist files as its acceptance suite) plus the full Flask app:
+the browse-first read-only site, token-gated admin queue, class
+collections via magic link, communal opt-in, and the auto-resizing
+WordPress embed. Each milestone was shaped by an adversarial review and
+all confirmed findings fixed. What remains is **M7** (deploy) and
+**M8** (one-command subject-specific instances). The full implementation
+plan (design, milestones, and the adversarial review that shaped it)
+lives in Michael's reports repo.
 
 ## The library
 
