@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% from "_macros.html" import class_entry_card %}
-{% block title %}{{ coll.name }} — {{ site_name }}{% endblock %}
+{% block title %}{{ coll.name }} - {{ site_name }}{% endblock %}
 {% block content %}
   <h1>{{ coll.name }}</h1>
   {% if textbook %}
     <p class="muted">{{ textbook.title }}{% if textbook.edition %}, {{ textbook.edition }}{% endif %}
-      &middot; {{ placed }} scientist{{ '' if placed == 1 else 's' }} placed across
+      | {{ placed }} scientist{{ '' if placed == 1 else 's' }} placed across
       {{ chapters|length }} chapters.</p>
     <p class="actions">
       <a href="{{ url_for('cls.deck', slug=coll.slug) }}">Download the whole-class slide deck (.pptx)</a>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Add a scientist — {{ coll.name }}{% endblock %}
+{% block title %}Add a scientist - {{ coll.name }}{% endblock %}
 {% block content %}
   <h1>Add a scientist to {{ coll.name }}</h1>
   {% if not coll.submissions_open %}
@@ -26,7 +26,7 @@
           <option value="">-- choose a chapter --</option>
           {% for row in toc %}
             <option value="{{ row.chapter }}" {{ 'selected' if values.get('chapter') == row.chapter|string }}>
-              Ch {{ row.chapter }} &mdash; {{ row.topics }}</option>
+              Ch {{ row.chapter }}: {{ row.topics }}</option>
           {% endfor %}
         </select>
       </label>

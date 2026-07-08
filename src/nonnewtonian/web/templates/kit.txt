@@ -1,4 +1,4 @@
-{{ coll.name }} — {{ site_name }} class kit
+{{ coll.name }} - {{ site_name }} class kit
 {{ '=' * 60 }}
 
 STUDENT SUBMISSION LINK (share with your class):

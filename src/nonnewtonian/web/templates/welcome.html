@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Your class is ready — {{ site_name }}{% endblock %}
+{% block title %}Your class is ready - {{ site_name }}{% endblock %}
 {% block content %}
   <h1>"{{ coll.name }}" is ready</h1>
   <p class="muted">You get two links. Share the <strong>student link</strong> with your class. Keep the
@@ -28,7 +28,7 @@
     </p>
   </div>
 
-  <p class="actions"><a class="btn primary" href="{{ url_for('manage.dashboard', token=token) }}">Go to my dashboard &rarr;</a></p>
+  <p class="actions"><a class="btn primary" href="{{ url_for('manage.dashboard', token=token) }}">Go to my dashboard -&gt;</a></p>
 
   <script>
     document.querySelectorAll('[data-copy]').forEach(function (b) {

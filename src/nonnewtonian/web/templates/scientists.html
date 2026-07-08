@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import portrait %}
-{% block title %}Scientists — {{ site_name }}{% endblock %}
+{% block title %}Scientists - {{ site_name }}{% endblock %}
 {% block content %}
   <h1>Scientists</h1>
   <form method="get" action="{{ url_for('public.scientists') }}">
@@ -8,7 +8,7 @@
            aria-label="Search scientists" style="font:inherit;padding:.3rem .6rem;border:1px solid var(--rule);border-radius:6px;">
     <button type="submit">Search</button>
   </form>
-  <p class="muted small">{{ entries|length }} scientist{{ '' if entries|length == 1 else 's' }}{% if search %} matching “{{ search }}”{% endif %}.</p>
+  <p class="muted small">{{ entries|length }} scientist{{ '' if entries|length == 1 else 's' }}{% if search %} matching "{{ search }}"{% endif %}.</p>
   <ul class="cardlist">
     {% for e in entries %}
       <li style="display:flex;gap:.8rem;align-items:center;">
@@ -19,7 +19,7 @@
         </div>
         <div>
           <a href="{{ url_for('public.scientist', slug=e.slug) }}"><strong>{{ e.name }}</strong></a>
-          {% if e.description %}<div class="small muted">{{ e.description[0][:120] }}{% if e.description[0]|length > 120 %}…{% endif %}</div>{% endif %}
+          {% if e.description %}<div class="small muted">{{ e.description[0][:120] }}{% if e.description[0]|length > 120 %}...{% endif %}</div>{% endif %}
         </div>
       </li>
     {% endfor %}

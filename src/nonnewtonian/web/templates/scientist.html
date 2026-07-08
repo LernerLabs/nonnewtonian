@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}{{ name }} — {{ site_name }}{% endblock %}
+{% block title %}{{ name }} - {{ site_name }}{% endblock %}
 {% block content %}
-  <p class="small"><a href="{{ url_for('public.scientists') }}">&larr; All scientists</a></p>
+  <p class="small"><a href="{{ url_for('public.scientists') }}">&lt;- All scientists</a></p>
   <h1>{{ name }}</h1>
 
   {% set first = writeups[0] %}
@@ -14,7 +14,7 @@
           <img src="{{ url_for('public.photo', relpath=p.file_path) }}" alt="Portrait of {{ name }}">
           <figcaption class="photo-note">
             {% if p.recovered %}recovered from an archived slide{% elif not p.license_verified %}source unverified{% else %}{{ p.license }}{% endif %}
-            {% if p.original_url %}&middot; <a href="{{ p.original_url }}" rel="nofollow noopener noreferrer">origin</a>{% endif %}
+            {% if p.original_url %}(<a href="{{ p.original_url }}" rel="nofollow noopener noreferrer">origin</a>){% endif %}
           </figcaption>
         </figure>
       {% endfor %}
@@ -36,7 +36,7 @@
     {% if w.why_chapter %}<p class="small"><strong>Why this chapter:</strong> {{ w.why_chapter }}</p>{% endif %}
     {% if w.sources %}
       <p class="meta"><strong>Sources:</strong>
-        {% for s in w.sources %}{{ s }}{% if not loop.last %} &middot; {% endif %}{% endfor %}</p>
+        {% for s in w.sources %}{{ s }}{% if not loop.last %} | {% endif %}{% endfor %}</p>
     {% endif %}
     <p class="meta">
       {% if w.displayed_credit() %}<span class="credit">Contributed by {{ w.displayed_credit() }}.</span> {% endif %}

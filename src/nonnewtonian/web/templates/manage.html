@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% from "_macros.html" import class_entry_card %}
-{% block title %}Manage "{{ coll.name }}" — {{ site_name }}{% endblock %}
+{% block title %}Manage "{{ coll.name }}" - {{ site_name }}{% endblock %}
 {% block content %}
   <h1>{{ coll.name }}</h1>
-  <p class="muted">{{ pending|length }} waiting for review &middot; {{ approved }} approved &amp; live.
-    <a href="{{ url_for('cls.page', slug=coll.slug) }}">View the class page &rarr;</a></p>
+  <p class="muted">{{ pending|length }} waiting for review | {{ approved }} approved &amp; live.
+    <a href="{{ url_for('cls.page', slug=coll.slug) }}">View the class page -&gt;</a></p>
 
   <div class="linkbox">
     <p class="small">Student submission link:</p>

@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Scientists we're looking for — {{ site_name }}{% endblock %}
+{% block title %}Scientists we're looking for - {{ site_name }}{% endblock %}
 {% block content %}
   <h1>Scientists we're still looking for</h1>
   <p class="muted">These names came up as people who belong in the collection but don't have an entry
     yet. Any of them would make a good class assignment.</p>
   <ul class="cardlist">
     {% for w in wanted %}
-      <li><strong>{{ w.name }}</strong>{% if w.note %} — {{ w.note }}{% endif %}
+      <li><strong>{{ w.name }}</strong>{% if w.note %}: {{ w.note }}{% endif %}
         {% if w.source %}<span class="small muted"> ({{ w.source }})</span>{% endif %}</li>
     {% endfor %}
   </ul>
