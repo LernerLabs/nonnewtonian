@@ -8,26 +8,26 @@ Knight, Physics for Scientists and Engineers: A Strategic Approach with Modern P
 # Description
 
 Ilesanmi Adesida is a physicist of Nigerian descent who is currently
-the provost at Nazarbayev University in Kazakhstan (“Ilesanmi
-Adesida”). Adesida is an expert in the processing of semiconductors
+the provost at Nazarbayev University in Kazakhstan ("Ilesanmi
+Adesida"). Adesida is an expert in the processing of semiconductors
 and other materials at the nanometer-scale level and in high- speed
-field-effect transistors, which are found in cell phones (“Ilesanmi
-Adesida”). While he was a professor at the University of Illinois at
+field-effect transistors, which are found in cell phones ("Ilesanmi
+Adesida"). While he was a professor at the University of Illinois at
 Urbana-Champaign, he and his students worked on these transistors in
 cell phones and other electronic devices by developing devices in the
 key materials such as indium phosphide, silicon carbide, and gallium
-nitride used in high- performance wireless applications (“Ilesanmi
-Adesida”, “Who are the Black Physicists”). His other activities center
+nitride used in high- performance wireless applications ("Ilesanmi
+Adesida", "Who are the Black Physicists"). His other activities center
 on studying dislocations in gallium nitride using photoelectrochemical
 etching and investigating high speed field-effect transistors in
-various chemical structures (“Who are the Black Physicists”).
+various chemical structures ("Who are the Black Physicists").
 
   
 # Sources
-“Ilesanmi Adesida.” Wikipedia: The Free Encyclopedia. Wikimedia Foundation,
+"Ilesanmi Adesida." Wikipedia: The Free Encyclopedia. Wikimedia Foundation,
 Inc. 2  
 September 2017. Web. 5 October 2017.  
-Williams, Scott. “Who Are the Black Physicists.” Ilesanmi Adesida - Computer  
+Williams, Scott. "Who Are the Black Physicists." Ilesanmi Adesida - Computer  
 Scientist, Physicist of the African Diaspora, State University of New York at
 Buffalo, 25  
 May 1997,  

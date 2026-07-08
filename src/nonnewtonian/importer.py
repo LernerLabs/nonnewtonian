@@ -124,7 +124,7 @@ def _license_notice(filename: str) -> str | None:
     if filename in WIKIPEDIA_VERBATIM:
         return "Text adapted from Wikipedia, CC BY-SA (verify version at source)"
     if filename in QUOTED_SOURCE:
-        return "Contains quoted source text — see Sources"
+        return "Contains quoted source text (see Sources)"
     return None
 
 

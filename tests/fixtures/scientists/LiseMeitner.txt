@@ -6,7 +6,7 @@ Knight, Physics for Scientists and Engineers: A Strategic Approach with Modern P
 
 
 # Description
-Lise Meitner (English /ˈliːzə ˈmaɪtnər/; 7 November 1878 – 27 October 1968) was an Austrian-Swedish physicist who worked on radioactivity and nuclear physics. Otto Hahn and Meitner led the small group of scientists who first discovered nuclear fission of uranium when it absorbed an extra neutron; the results were published in early 1939. Meitner and Otto Frisch understood that the fission process, which splits the atomic nucleus of uranium into two smaller nuclei, must be accompanied by an enormous release of energy. This process is the basis of the nuclear weapons that were developed in the U.S. during World War II and used against Japan in 1945. Nuclear fission is also the process exploited by nuclear reactors to generate electricity.
+Lise Meitner (English /ˈliːzə ˈmaɪtnər/; 7 November 1878 - 27 October 1968) was an Austrian-Swedish physicist who worked on radioactivity and nuclear physics. Otto Hahn and Meitner led the small group of scientists who first discovered nuclear fission of uranium when it absorbed an extra neutron; the results were published in early 1939. Meitner and Otto Frisch understood that the fission process, which splits the atomic nucleus of uranium into two smaller nuclei, must be accompanied by an enormous release of energy. This process is the basis of the nuclear weapons that were developed in the U.S. during World War II and used against Japan in 1945. Nuclear fission is also the process exploited by nuclear reactors to generate electricity.
 # Sources
 https://en.wikipedia.org/wiki/Lise_Meitner
 # Photo

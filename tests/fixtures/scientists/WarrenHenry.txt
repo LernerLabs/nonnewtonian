@@ -10,40 +10,40 @@ Knight, 2nd Edition, Chapter 22
 Joshua Maclin
 
 # Description
-Warren Henry was an African American Physicist that had somewhat of an astute background for a black man of his time. Both of his parents had graduated from the Tuskegee Institute, and George Washington Carver lived and conducted research on his parent’s farm during the summer months (Williams). It can be quite apparent to see where his interest in the sciences more than likely came from during his childhood. He later attended Tuskegee where he majored in Mathematics, English, and French (Williams). Later wanting to conduct research, he turned to Rutgers University where they then turned him away (Williams).  As a result, he ended up going to the Naval Research Laboratory where he would reside for the next 12 years (Williams). During that time he was able to research and gain the knowledge of materials that were at a rather low temperature (Williams). His expertise regarding low-temperature research was probably unsurpassed in the U.S. while at the Naval Research Laboratory. He was also the head of several projects at several institutions like UC Berkeley amongst others. 
+Warren Henry was an African American Physicist that had somewhat of an astute background for a black man of his time. Both of his parents had graduated from the Tuskegee Institute, and George Washington Carver lived and conducted research on his parent's farm during the summer months (Williams). It can be quite apparent to see where his interest in the sciences more than likely came from during his childhood. He later attended Tuskegee where he majored in Mathematics, English, and French (Williams). Later wanting to conduct research, he turned to Rutgers University where they then turned him away (Williams).  As a result, he ended up going to the Naval Research Laboratory where he would reside for the next 12 years (Williams). During that time he was able to research and gain the knowledge of materials that were at a rather low temperature (Williams). His expertise regarding low-temperature research was probably unsurpassed in the U.S. while at the Naval Research Laboratory. He was also the head of several projects at several institutions like UC Berkeley amongst others. 
 
-Even though his research in low temperatures was quite significant, he was most known for his work in magnetism and superconductivity. His work in this field was what brought him the most praise by the scientific community. He had written a highly detailed study that consisted of a "demonstration of the proof of non-interacting paramagnetic ions and how they’re a significant contribution” when considering magnetism and superconductivity (Williams). 
+Even though his research in low temperatures was quite significant, he was most known for his work in magnetism and superconductivity. His work in this field was what brought him the most praise by the scientific community. He had written a highly detailed study that consisted of a "demonstration of the proof of non-interacting paramagnetic ions and how they're a significant contribution" when considering magnetism and superconductivity (Williams). 
 
 His work was a significant contribution to the world because his models and ideas have been implemented into modern textbooks, and are still widely used to this day. A prime example of that being the demonstration I had spoken of earlier that took place back in 1934.
 
 [Commentary from a second student:]
 
-Warren Henry (1909 – 2001) was an African American physicist who specialized
+Warren Henry (1909 - 2001) was an African American physicist who specialized
 in the fields of magnetism and superconductivity (Williams 2008). His
 contributions to the world of physics include hundreds of published articles
 regarding his research, the partial discovery of paramagnetism and how it
-works on a quantum level, and a “demonstration of the proof of non-interacting
-paramagnetic ions” (Williams 2008). His research was important for the U.S.
+works on a quantum level, and a "demonstration of the proof of non-interacting
+paramagnetic ions" (Williams 2008). His research was important for the U.S.
 naval forces during the time of the Vietnam War, as U.S. submarines were able
 to be equipped with better technology and sonar. He received his undergraduate
 degree in mathematics, English, and French from Tuskegee Institute, and he
 received his PhD in physical chemistry in 1941 from University of Chicago
-(“Warren Elliot Henry”). His background also includes an education involving
-many Nobel Prize winning scientists; “Arthur Compton taught him quantum
+("Warren Elliot Henry"). His background also includes an education involving
+many Nobel Prize winning scientists; "Arthur Compton taught him quantum
 mechanics, Wolfgang Pauli taught nuclear forces, Robert Millikan taught
-molecular spectra” (Williams 2008). Henry was a recipient of the Lifetime
+molecular spectra" (Williams 2008). Henry was a recipient of the Lifetime
 Achievement Award from the National Science Foundation, and is recognized as
 one of the best, most important African American physicists of all time
-(“Warren Elliot Henry”).  
+("Warren Elliot Henry").  
 
 
 # Sources
 
-Physics Central. “Africn Americans in Physics.” Physics Buzz, American Physical Society, 27 
+Physics Central. "Africn Americans in Physics." Physics Buzz, American Physical Society, 27 
 	Feb. 2013, http://physicsbuzz.physicscentral.com/2013/02/african-americans-in-
 	physics.html
 
-Williams, Scott. “Physicist of the African Diaspora - Warren E Henry.” Warren E. Henry - 
+Williams, Scott. "Physicist of the African Diaspora - Warren E Henry." Warren E. Henry - 
 	Physicist of the African Diaspora, Bonvibre & Daughters, http://www.math.buffalo.edu/
 	mad/physics/henry_warren.html
 

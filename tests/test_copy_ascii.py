@@ -5,7 +5,9 @@ keeps a stray em-dash or curly quote from creeping back in unnoticed."""
 import pathlib
 import re
 
-TEMPLATES = pathlib.Path(__file__).resolve().parents[1] / "src/nonnewtonian/web/templates"
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+TEMPLATES = ROOT / "src/nonnewtonian/web/templates"
+TOC_CSVS = ROOT / "data/textbooks"
 
 # Entities that RENDER as a non-ASCII glyph. Structural escapes that render as
 # ASCII (&amp; &lt; &gt;) and the non-breaking space (&nbsp;, renders as a
@@ -29,3 +31,16 @@ def test_templates_contain_no_nonascii_glyphs():
     assert not offenders, (
         "Non-ASCII in user-facing copy (use ASCII equivalents):\n" + "\n".join(offenders)
     )
+
+
+def test_textbook_toc_data_is_ascii():
+    # Chapter/section/topic labels render on the public textbook pages, so the
+    # TOC data files must be ASCII too (a stray curly apostrophe in "Gauss's
+    # Law" slipped through the first pass).
+    offenders = []
+    for f in sorted(TOC_CSVS.glob("*.csv")):
+        for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            for ch in line:
+                if ord(ch) > 127:
+                    offenders.append(f"{f.name}:{i}: literal U+{ord(ch):04X} {ch!r}")
+    assert not offenders, "Non-ASCII in textbook TOC data:\n" + "\n".join(offenders)

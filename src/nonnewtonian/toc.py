@@ -46,7 +46,7 @@ def load_toc(text: str) -> list[TocRow]:
         raise TocError("The file is empty.") from None
     if [h.strip() for h in header] != EXPECTED_HEADER:
         raise TocError(
-            "The first line must be exactly 'Chapter,Section,Topics' — "
+            "The first line must be exactly 'Chapter,Section,Topics', but "
             f"got {','.join(header)!r}."
         )
 
@@ -63,7 +63,7 @@ def load_toc(text: str) -> list[TocRow]:
         raw_chapter, raw_section, topics = (cell.strip() for cell in record)
         if any("\n" in cell for cell in record):
             raise TocError(
-                f"Line {line_number}: a field contains a line break — this "
+                f"Line {line_number}: a field contains a line break. This "
                 "usually means a quoting problem in the CSV (a previous "
                 "chapter may have swallowed this one)."
             )
@@ -77,7 +77,7 @@ def load_toc(text: str) -> list[TocRow]:
         if chapter < previous_chapter:
             raise TocError(
                 f"Line {line_number}: chapter {chapter} comes after chapter "
-                f"{previous_chapter} — chapters must not decrease."
+                f"{previous_chapter}; chapters must not decrease."
             )
         section: int | None = None
         if raw_section:

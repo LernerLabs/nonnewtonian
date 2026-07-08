@@ -137,7 +137,7 @@ def sniff_image_type(data: bytes) -> str:
             return ext
     raise PhotoError(
         "That link did not return an image file (it may be an error page "
-        "or a web page around the image — link directly to the image)."
+        "or a web page around the image; link directly to the image)."
     )
 
 
