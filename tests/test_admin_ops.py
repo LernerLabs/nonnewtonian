@@ -218,3 +218,23 @@ def test_takedown_wrong_admin_token_404(client, app):
     assert client.post("/admin/wrong/takedown", data={"entry_id": str(eid)}).status_code == 404
     assert _conn(app).execute("SELECT count(*) FROM entries WHERE id=?",
                               (eid,)).fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("name", ["Miles O'Brien", "X');fetch('/x');('",
+                                  'A "quoted" <b>name</b>'])
+def test_published_takedown_confirm_is_a_json_string(client, app, name):
+    # M7 review #13: HTML escaping alone let ' close the JS string once the
+    # browser decoded the attribute.
+    import html as _html
+    import json
+    tok, _, slug = _new_class(client, app)
+    eid = _submit(client, app, slug, name)
+    client.post(f"/manage/{tok}/entry/{eid}/approve", data={"share_communal": "1"})
+    client.post(f"/admin/{TOKEN}/shared/{eid}/approve")
+    page = client.get(f"/admin/{TOKEN}").get_data(as_text=True)
+    handlers = [_html.unescape(h) for h in re.findall(r'onsubmit="([^"]*)"', page)
+                if "communal site" in _html.unescape(h)]
+    assert len(handlers) == 1, page
+    m = re.fullmatch(r"return confirm\((.*)\);", handlers[0])
+    assert m, handlers[0]
+    assert json.loads(m.group(1)) == f"Take down {name} from the communal site?"

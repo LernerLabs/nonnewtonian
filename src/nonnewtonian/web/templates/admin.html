@@ -65,7 +65,7 @@
         {% if entry.is_seed %}<span class="pill">seed</span>{% endif %}
         <form class="inline" method="post"
               action="{{ url_for('admin.delete_communal', token=token, entry_id=entry.id) }}"
-              onsubmit="return confirm('Take down {{ entry.name }} from the communal site?');">
+              onsubmit="return confirm({{ ('Take down ' ~ entry.name ~ ' from the communal site?')|tojson|forceescape }});">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="danger">Take down</button>
         </form>
