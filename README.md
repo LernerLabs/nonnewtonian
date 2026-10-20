@@ -28,23 +28,24 @@ shaped it) lives in Michael's reports repo.
 
 ## The library
 
-- `nonnewtonian.parser` — parse and round-trip the scientist text-file
+- `nonnewtonian.parser`: parse and round-trip the scientist text-file
   format (header variance, repeated-block merge, paragraph unwrap,
   hyphen-split URL rejoin). `parse(entry_to_text(e)) == e` is tested
   over the whole corpus: an entry can always leave the system as a
   plain-text file.
-- `nonnewtonian.placements` — textbook placement lines (all seven
+- `nonnewtonian.placements`: textbook placement lines (all seven
   grammars in the corpus) with alias matching and review flags. Nothing
   is ever silently dropped; the six placements the original pipeline
   lost all surface.
-- `nonnewtonian.toc` — TOC CSV loading with teacher-readable
+- `nonnewtonian.toc`: TOC CSV loading with teacher-readable
   validation, including rejection of the quoting corruption that
   silently swallowed half the Matter & Interactions chapters.
-- `nonnewtonian.photos` — fetch/validate/normalize/store photos
+- `nonnewtonian.photos`: fetch/validate/normalize/store photos
   (content-hash storage, magic-byte checks, decompression-bomb limits,
-  private-address rejection) plus recovery of images embedded in the
-  old .pptx decks — the only surviving copies of rotted photo URLs.
-- `nonnewtonian.slides` — per-scientist slides and chapter-ordered
+  private-address rejection, a 20 s total fetch deadline, shrinking to
+  2000 px on the long edge) plus recovery of images embedded in the old
+  .pptx decks, the only surviving copies of rotted photo URLs.
+- `nonnewtonian.slides`: per-scientist slides and chapter-ordered
   decks via python-pptx: aspect-fit images, formatted notes, text
   slides for photo-less scientists, divider slides per chapter.
 
@@ -58,10 +59,11 @@ python3 -m venv .venv
 
 The `nonnewtonian` command (installed by `pip install -e .`) has three
 subcommands: `seed-import` (load the original corpus as communal-pending
-seeds), `migrate --db PATH [--check]` (apply or list schema migrations), and
-`export-static` (render the public communal site to a directory). Without
-the console script, `python -m nonnewtonian.cli` does the same. On the
-server, run it through `deploy/nnp-cli`; see the runbook.
+seeds), `migrate --db PATH [--check] [--create]` (apply or list schema
+migrations; a missing database is an error unless `--create` asks for a new
+empty one), and `export-static` (render the public communal site to a
+directory). Without the console script, `python -m nonnewtonian.cli` does
+the same. On the server, run it through `deploy/nnp-cli`; see the runbook.
 
 `tests/fixtures/` carries the 39 real scientist files, both original
 TOC CSVs (including the broken M&I one, kept broken on purpose as a
