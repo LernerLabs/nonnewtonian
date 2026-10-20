@@ -255,3 +255,19 @@ def test_delete_requires_slug_confirmation(client, app):
     r = client.post(f"/manage/{tok}/delete", data={"confirm": slug})
     assert r.status_code == 200 and b"has been deleted" in r.data
     assert _conn(app).execute("SELECT count(*) FROM collections").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("bad", ["e", "the", "a@b", "x@localhost", "@example.org"])
+def test_create_rejects_an_implausible_teacher_email(client, app, bad):
+    # M7 review #12: a junk email used to stall every static export.
+    r = client.post("/new", data={"name": "X", "textbook_mode": "builtin",
+                                  "textbook_slug": "bk", "teacher_email": bad})
+    assert r.status_code == 400 and b"email address" in r.data
+    assert _conn(app).execute("SELECT count(*) FROM collections").fetchone()[0] == 0
+
+
+def test_create_accepts_a_plausible_or_blank_teacher_email(client, app):
+    _create_class(client, teacher_email=" t@ex.edu ")
+    _create_class(client, teacher_email="")
+    emails = [r[0] for r in _conn(app).execute("SELECT teacher_email FROM collections")]
+    assert sorted(emails, key=str) == sorted(["t@ex.edu", None], key=str)
