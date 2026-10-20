@@ -95,21 +95,60 @@ def cmd_seed_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_migrate(args: argparse.Namespace) -> int:
+    if not db_mod.migration_files():
+        print(f"no migrations found under {db_mod._MIGRATIONS_DIR}; "
+              "install editable (pip install -e)")
+        return 2
+    if args.check:
+        # Never create the file here: the production preflight relies on a
+        # missing DB staying missing (sqlite3.connect would make an empty one).
+        if not Path(args.db).exists():
+            print(f"database missing at {args.db}")
+            return 1
+        conn = db_mod.connect(args.db)
+        pending = db_mod.pending_migrations(conn)
+        conn.close()
+        if pending:
+            print("pending: " + ", ".join(pending))
+            return 1
+        print("up to date")
+        return 0
+    now = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat()
+    conn = db_mod.connect(args.db)
+    applied = db_mod.migrate(conn, now=now)
+    db_mod.assert_wal(conn)
+    conn.close()
+    print("applied: " + ", ".join(applied) if applied else "up to date")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nonnewtonian")
     sub = parser.add_subparsers(dest="command", required=True)
 
     seed = sub.add_parser("seed-import", help="import the original corpus as communal-pending seeds")
-    seed.add_argument("--db", default="app.db", help="SQLite database path")
+    # Same defaults as the web app (web/__init__.py), so a bare command
+    # writes where the app reads.
+    seed.add_argument("--db", default=os.environ.get("NNP_DB", "data/app.db"),
+                      help="SQLite database path ($NNP_DB)")
     seed.add_argument("--scientists", default=str(_DEFAULT_SCIENTISTS))
     seed.add_argument("--textbooks", default=str(_DEFAULT_TEXTBOOKS),
                       help="dir of per-textbook <slug>.toml files")
-    seed.add_argument("--photo-dir", default="data/photos")
+    seed.add_argument("--photo-dir", default=os.environ.get("NNP_PHOTOS", "data/photos"),
+                      help="content-hash photo tree ($NNP_PHOTOS)")
     seed.add_argument("--decks-dir", default=_default_decks_dir(),
                       help="original .pptx decks for dead-photo recovery ($NNP_DECKS)")
     seed.add_argument("--dry-run", action="store_true")
     seed.add_argument("--no-photos", action="store_true", help="skip network photo fetching")
     seed.set_defaults(func=cmd_seed_import)
+
+    mig = sub.add_parser("migrate", help="apply pending schema migrations")
+    mig.add_argument("--db", required=True, help="SQLite database path")
+    mig.add_argument("--check", action="store_true",
+                     help="only list pending migrations; exit 1 if any")
+    mig.set_defaults(func=cmd_migrate)
+    # "export-static" is reserved for the static-export subcommand (M7 WP10).
     return parser
 
 
