@@ -66,6 +66,7 @@ def test_valid_production_config_boots(tmp_path):
     ({"SITE_URL": ""}, "NNP_SITE_URL must start with https://"),
     ({"PHOTO_DIR": "data/photos"}, "NNP_PHOTOS must be an absolute path"),
     ({"SMTP_HOST": "smtp.example.org"}, "SMTP is half-configured"),
+    ({"SMTP_PORT": "587 # tls"}, "NNP_SMTP_PORT must be an integer"),
 ])
 def test_each_config_check_fails_individually(tmp_path, monkeypatch, override, expected):
     monkeypatch.chdir(tmp_path)  # a relative PHOTO_DIR is created here, not in the repo
@@ -73,6 +74,19 @@ def test_each_config_check_fails_individually(tmp_path, monkeypatch, override, e
     assert msg.startswith("production preflight failed:")
     assert expected in msg
     assert msg.count("\n  - ") == 1
+
+
+@pytest.mark.parametrize("raw, expected", [("", 587), ("  ", 587), ("2525", 2525)])
+def test_smtp_port_from_env(tmp_path, monkeypatch, raw, expected):
+    # M7 review #14: an empty NNP_SMTP_PORT used to crash int() before preflight.
+    monkeypatch.setenv("NNP_SMTP_PORT", raw)
+    assert create_app(_prod_config(tmp_path), production=True).config["SMTP_PORT"] == expected
+
+
+def test_bad_smtp_port_from_env_is_a_preflight_problem(tmp_path, monkeypatch):
+    monkeypatch.setenv("NNP_SMTP_PORT", "587 # tls")
+    msg = _preflight_error(_prod_config(tmp_path, SECRET_KEY="short"))
+    assert "NNP_SMTP_PORT must be an integer" in msg and "NNP_SECRET_KEY" in msg
 
 
 def test_relative_db_path_fails(tmp_path, monkeypatch):
@@ -87,7 +101,10 @@ def test_missing_db_fails_without_creating_it(tmp_path):
     missing = tmp_path / "nope.db"
     msg = _preflight_error(_prod_config(tmp_path, DB_PATH=str(missing)))
     assert f"database missing at {missing}" in msg
-    assert "nonnewtonian migrate --db" in msg
+    # M7 review #32/#35: point at the real procedure, not a bare migrate
+    # that would make an empty, wrongly-moded DB.
+    assert "rerun: sudo /opt/nnp/deploy/install.sh" in msg
+    assert "migrate --db" not in msg
     assert not missing.exists()  # sqlite3.connect would have created it
 
 
@@ -104,7 +121,9 @@ def test_pending_migrations_fail(tmp_path):
     conn.commit()
     conn.close()
     last = db_mod.migration_files()[-1].name
-    assert f"pending migrations {last}" in _preflight_error(cfg)
+    msg = _preflight_error(cfg)
+    assert f"pending migrations {last}" in msg
+    assert f"sudo /opt/nnp/deploy/nnp-cli migrate --db {cfg['DB_PATH']}" in msg
 
 
 def test_no_migrations_found_fails(tmp_path, monkeypatch):

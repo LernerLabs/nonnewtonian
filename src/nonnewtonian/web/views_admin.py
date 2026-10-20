@@ -60,13 +60,14 @@ def dashboard(token):
         "SELECT * FROM entries WHERE collection_id IS NULL AND communal_status='approved' "
         "ORDER BY scientist_name COLLATE NOCASE")]
     classes = conn.execute(
-        "SELECT c.id, c.name, c.slug, c.teacher_email, c.created_at, "
+        "SELECT c.id, c.name, c.slug, c.teacher_email, c.created_at, c.manage_token_hash, "
         "(SELECT count(*) FROM entries e WHERE e.collection_id=c.id) AS n "
         "FROM collections c ORDER BY c.created_at DESC").fetchall()
     return render_template(
         "admin.html", token=token, pending=pending_entries,
         approved_count=approved_count, shared=shared_entries, published=published,
         classes=classes, took_down=request.args.get("took_down", type=int),
+        reissue_stale=request.args.get("reissue_stale", type=int),
     )
 
 
@@ -108,12 +109,30 @@ def takedown(token):
     every slide URL (/c/<slug>/entry/<id>/slide.pptx), so a complaint
     about a student's name on a class page no longer needs hand SQL.
     A communal clone is a separate entry: taking down a class entry does
-    not remove its public copy (take that down by its own id)."""
+    not remove its public copy (take that down by its own id).
+
+    Step 1 of 2: deletes nothing; shows the entry the typed id names
+    (scientist, class, contributor) so a typo is visible before the
+    irreversible step 2, takedown_delete."""
     _check_token(token)
     entry_id = request.form.get("entry_id", type=int)
+    row = None if entry_id is None else _db().execute(
+        "SELECT e.id, e.scientist_name, e.contributor_name, e.attribution_mode, e.status, "
+        "e.communal_status, c.name AS class_name, "
+        "(SELECT count(*) FROM photos p WHERE p.entry_id=e.id) AS n_photos "
+        "FROM entries e LEFT JOIN collections c ON e.collection_id = c.id "
+        "WHERE e.id=?", (entry_id,)).fetchone()
+    if row is None:
+        abort(404)
+    return render_template("admin_takedown_confirm.html", token=token, e=row)
+
+
+@bp.route("/admin/<token>/takedown/<int:entry_id>/delete", methods=["POST"])
+def takedown_delete(token, entry_id):
+    """Step 2 of 2: delete the entry confirmed on the step-1 page."""
+    _check_token(token)
     conn = _db()
-    if entry_id is None or not conn.execute(
-            "SELECT 1 FROM entries WHERE id=?", (entry_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM entries WHERE id=?", (entry_id,)).fetchone():
         abort(404)
     _delete_entry_and_orphan_photos(conn, entry_id)
     return redirect(url_for("admin.dashboard", token=token, took_down=entry_id))
@@ -123,15 +142,23 @@ def takedown(token):
 def reissue(token, cid):
     """Mint a fresh manage link for a class whose teacher lost theirs, with
     no SMTP needed (M7). The old link dies at once. The new token is shown
-    once on the response page and never logged or stored in readable form."""
+    once on the response page and never logged or stored in readable form.
+
+    The form carries the hash prefix it was rendered with, and the swap is
+    a compare-and-swap: a reload or Back+resubmit of the show-once page
+    (served no-store, so the browser re-POSTs) gets a "stale" banner
+    instead of silently killing the link just sent."""
     _check_token(token)
     conn = _db()
     coll = conn.execute("SELECT * FROM collections WHERE id=?", (cid,)).fetchone()
     if coll is None:
         abort(404)
-    t = repo.reissue_manage_token(conn, cid)
-    if t is None:  # row vanished between the SELECT and the UPDATE
-        abort(404)
+    seen = request.form.get("expected", "")
+    t = None
+    if len(seen) == 16 and coll["manage_token_hash"].startswith(seen):
+        t = repo.reissue_manage_token(conn, cid, expected_hash=coll["manage_token_hash"])
+    if t is None:  # stale form, or another re-issue won the race
+        return redirect(url_for("admin.dashboard", token=token, reissue_stale=cid))
     manage_url = _abs(url_for("manage.dashboard", token=t))
     welcome_url = _abs(url_for("manage.welcome", token=t))
     student_url = _abs(url_for("cls.submit", slug=coll["slug"]))

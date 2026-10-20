@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Confirm takedown - {{ site_name }}{% endblock %}
+{% block content %}
+  <h1>Take down entry {{ e.id }}?</h1>
+  <p class="linkbox warn"><strong>Check this is the entry you meant.</strong> Taking it down deletes the
+    entry and any photo file nothing else uses. It cannot be undone, short of a restore from backup.</p>
+  <table style="border-collapse:collapse">
+    <tr><th style="text-align:left;padding:.3rem .6rem">Scientist</th>
+      <td style="padding:.3rem .6rem">{{ e.scientist_name }}</td></tr>
+    <tr><th style="text-align:left;padding:.3rem .6rem">Class</th>
+      <td style="padding:.3rem .6rem">{{ e.class_name if e.class_name is not none else "(communal entry, no class)" }}</td></tr>
+    <tr><th style="text-align:left;padding:.3rem .6rem">Contributor</th>
+      <td style="padding:.3rem .6rem">{{ e.contributor_name or "(none given)" }} ({{ e.attribution_mode }})</td></tr>
+    <tr><th style="text-align:left;padding:.3rem .6rem">Status</th>
+      <td style="padding:.3rem .6rem">class: {{ e.status }}; communal: {{ e.communal_status }}</td></tr>
+    <tr><th style="text-align:left;padding:.3rem .6rem">Photos</th>
+      <td style="padding:.3rem .6rem">{{ e.n_photos }}</td></tr>
+  </table>
+  <form class="inline" method="post" action="{{ url_for('admin.takedown_delete', token=token, entry_id=e.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="danger">Take down entry {{ e.id }}</button>
+  </form>
+  <p class="actions"><a class="btn" href="{{ url_for('admin.dashboard', token=token) }}">&lt;- Cancel, back to admin</a></p>
+{% endblock %}

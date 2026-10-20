@@ -73,6 +73,13 @@ def _add_photo(app, tmp_path, entry_id, relpath):
     return f
 
 
+def _expected(app, cid) -> dict:
+    """The re-issue form's hidden CAS field, as the admin page renders it."""
+    h = _conn(app).execute("SELECT manage_token_hash FROM collections WHERE id=?",
+                           (cid,)).fetchone()[0]
+    return {"expected": h[:16]}
+
+
 def _manage_token_from(html: str) -> str:
     m = re.search(r'value="[^"]*/manage/([^"/]+)" id="manage-url"', html)
     assert m, html
@@ -91,7 +98,7 @@ def test_admin_page_lists_classes(client, app):
 def test_reissue_rotates_manage_link(client, app):
     old, cid, _ = _new_class(client, app)
     assert client.get(f"/manage/{old}").status_code == 200
-    r = client.post(f"/admin/{TOKEN}/collections/{cid}/reissue")
+    r = client.post(f"/admin/{TOKEN}/collections/{cid}/reissue", data=_expected(app, cid))
     assert r.status_code == 200
     html = r.get_data(as_text=True)
     assert "Shown once. The old link is already dead." in html
@@ -105,6 +112,26 @@ def test_reissue_rotates_manage_link(client, app):
     stored = _conn(app).execute("SELECT manage_token_hash FROM collections WHERE id=?",
                                 (cid,)).fetchone()[0]
     assert stored == tokens.hash_token(new) and new not in stored
+
+
+def test_reissue_resubmit_is_stale_not_a_second_rotation(client, app):
+    # M7 review #33: a reload / Back+resubmit of the show-once page re-POSTs
+    # the same form; it must not silently kill the link just sent.
+    _, cid, _ = _new_class(client, app)
+    page = client.get(f"/admin/{TOKEN}").get_data(as_text=True)
+    m = re.search(r'name="expected" value="([0-9a-f]{16})"', page)
+    assert m, page
+    form = {"expected": m.group(1)}
+    first = client.post(f"/admin/{TOKEN}/collections/{cid}/reissue", data=form)
+    sent = _manage_token_from(first.get_data(as_text=True))
+    again = client.post(f"/admin/{TOKEN}/collections/{cid}/reissue", data=form)
+    assert again.status_code == 302 and f"reissue_stale={cid}" in again.headers["Location"]
+    assert client.get(f"/manage/{sent}").status_code == 200
+    banner = client.get(again.headers["Location"]).get_data(as_text=True)
+    assert "Not re-issued" in banner
+    # a form with no CAS field changes nothing either
+    assert client.post(f"/admin/{TOKEN}/collections/{cid}/reissue").status_code == 302
+    assert client.get(f"/manage/{sent}").status_code == 200
 
 
 def test_reissue_get_not_allowed(client, app):
@@ -148,7 +175,7 @@ def test_reissue_forms_carry_csrf_token(tmp_path):
     assert form, page
     assert client.post(f"/admin/{TOKEN}/collections/{created.id}/reissue").status_code == 400
     r = client.post(f"/admin/{TOKEN}/collections/{created.id}/reissue",
-                    data={"csrf_token": form.group(1)})
+                    data={"csrf_token": form.group(1), **_expected(app, created.id)})
     assert r.status_code == 200
     take = re.search(r'action="/admin/%s/takedown"[^>]*>\s*'
                      r'<input type="hidden" name="csrf_token"' % TOKEN, page)
@@ -166,13 +193,13 @@ def test_takedown_class_entry_keeps_photo_shared_with_communal_clone(client, app
     lone_eid = _submit(client, app, slug, "Lise Meitner")
     lone_file = _add_photo(app, tmp_path, lone_eid, "cd/lone.jpg")
 
-    r = client.post(f"/admin/{TOKEN}/takedown", data={"entry_id": str(lone_eid)})
+    r = client.post(f"/admin/{TOKEN}/takedown/{lone_eid}/delete")
     assert r.status_code == 302 and f"took_down={lone_eid}" in r.headers["Location"]
     assert not lone_file.exists()  # orphan reclaimed
     assert _conn(app).execute("SELECT count(*) FROM entries WHERE id=?",
                               (lone_eid,)).fetchone()[0] == 0
 
-    r = client.post(f"/admin/{TOKEN}/takedown", data={"entry_id": str(shared_eid)})
+    r = client.post(f"/admin/{TOKEN}/takedown/{shared_eid}/delete")
     assert r.status_code == 302
     assert _conn(app).execute("SELECT count(*) FROM entries WHERE id=?",
                               (shared_eid,)).fetchone()[0] == 0
@@ -191,8 +218,7 @@ def test_takedown_communal_entry(client, app, tmp_path):
         "SELECT id FROM entries WHERE collection_id IS NULL AND adopted_from_entry_id=?",
         (eid,)).fetchone()[0]
     assert client.get("/scientists/emmy-noether").status_code == 200
-    assert client.post(f"/admin/{TOKEN}/takedown",
-                       data={"entry_id": str(clone_id)}).status_code == 302
+    assert client.post(f"/admin/{TOKEN}/takedown/{clone_id}/delete").status_code == 302
     assert client.get("/scientists/emmy-noether").status_code == 404
     # the old communal-only route still works too (refactored onto the same helper)
     eid2 = _submit(client, app, slug, "Lise Meitner")
@@ -210,11 +236,80 @@ def test_takedown_rejects_bad_requests(client, app):
     assert client.post(f"/admin/{TOKEN}/takedown", data={"entry_id": "abc"}).status_code == 404
     assert client.post(f"/admin/{TOKEN}/takedown", data={}).status_code == 404
     assert client.get(f"/admin/{TOKEN}/takedown").status_code == 405
+    assert client.post(f"/admin/{TOKEN}/takedown/999/delete").status_code == 404
 
 
 def test_takedown_wrong_admin_token_404(client, app):
     _, _, slug = _new_class(client, app)
     eid = _submit(client, app, slug, "Emmy Noether")
     assert client.post("/admin/wrong/takedown", data={"entry_id": str(eid)}).status_code == 404
+    assert client.post(f"/admin/wrong/takedown/{eid}/delete").status_code == 404
     assert _conn(app).execute("SELECT count(*) FROM entries WHERE id=?",
                               (eid,)).fetchone()[0] == 1
+
+
+def test_takedown_by_id_previews_before_deleting(client, app, tmp_path):
+    # M7 review #34: a typed id now shows what it names; only step 2 deletes.
+    tok, _, slug = _new_class(client, app, name="Mr. K's Physics")
+    client.post(f"/c/{slug}/submit", data={
+        "scientist_name": "Emmy Noether", "chapter": "3", "description": "d",
+        "license_grant": "1", "form_ts": "0", "contributor_name": "Zed Student",
+        "attribution_mode": "first_initial"})
+    eid = _conn(app).execute("SELECT id FROM entries ORDER BY id DESC LIMIT 1").fetchone()[0]
+    photo = _add_photo(app, tmp_path, eid, "ef/one.jpg")
+    r = client.post(f"/admin/{TOKEN}/takedown", data={"entry_id": str(eid)})
+    assert r.status_code == 200
+    page = r.get_data(as_text=True)
+    for shown in ("Emmy Noether", "Mr. K&#39;s Physics", "Zed Student", "first_initial"):
+        assert shown in page, shown
+    assert f'action="/admin/{TOKEN}/takedown/{eid}/delete"' in page
+    assert _conn(app).execute("SELECT count(*) FROM entries WHERE id=?",
+                              (eid,)).fetchone()[0] == 1
+    assert photo.exists()
+    r = client.post(f"/admin/{TOKEN}/takedown/{eid}/delete")
+    assert r.status_code == 302 and f"took_down={eid}" in r.headers["Location"]
+    assert not photo.exists()
+
+
+def test_takedown_confirm_form_carries_csrf_token(tmp_path):
+    app = _make_app(tmp_path, WTF_CSRF_ENABLED=True)
+    client = app.test_client()
+    conn = _conn(app)
+    conn.execute("INSERT INTO entries(collection_id,scientist_name,scientist_slug,description,"
+                 "status,communal_status,created_at,updated_at) VALUES(NULL,'A B','a-b','d',"
+                 "'approved','approved',?,?)", (NOW, NOW))
+    conn.commit()
+    eid = conn.execute("SELECT id FROM entries").fetchone()[0]
+    page = client.get(f"/admin/{TOKEN}").get_data(as_text=True)
+    tok = re.search(r'action="/admin/%s/takedown"[^>]*>\s*'
+                    r'<input type="hidden" name="csrf_token" value="([^"]+)"' % TOKEN, page)
+    confirm = client.post(f"/admin/{TOKEN}/takedown",
+                          data={"csrf_token": tok.group(1), "entry_id": str(eid)})
+    assert confirm.status_code == 200
+    step2 = re.search(r'action="/admin/%s/takedown/%d/delete"[^>]*>\s*'
+                      r'<input type="hidden" name="csrf_token" value="([^"]+)"' % (TOKEN, eid),
+                      confirm.get_data(as_text=True))
+    assert step2
+    assert client.post(f"/admin/{TOKEN}/takedown/{eid}/delete").status_code == 400
+    assert client.post(f"/admin/{TOKEN}/takedown/{eid}/delete",
+                       data={"csrf_token": step2.group(1)}).status_code == 302
+
+
+@pytest.mark.parametrize("name", ["Miles O'Brien", "X');fetch('/x');('",
+                                  'A "quoted" <b>name</b>'])
+def test_published_takedown_confirm_is_a_json_string(client, app, name):
+    # M7 review #13: HTML escaping alone let ' close the JS string once the
+    # browser decoded the attribute.
+    import html as _html
+    import json
+    tok, _, slug = _new_class(client, app)
+    eid = _submit(client, app, slug, name)
+    client.post(f"/manage/{tok}/entry/{eid}/approve", data={"share_communal": "1"})
+    client.post(f"/admin/{TOKEN}/shared/{eid}/approve")
+    page = client.get(f"/admin/{TOKEN}").get_data(as_text=True)
+    handlers = [_html.unescape(h) for h in re.findall(r'onsubmit="([^"]*)"', page)
+                if "communal site" in _html.unescape(h)]
+    assert len(handlers) == 1, page
+    m = re.fullmatch(r"return confirm\((.*)\);", handlers[0])
+    assert m, handlers[0]
+    assert json.loads(m.group(1)) == f"Take down {name} from the communal site?"

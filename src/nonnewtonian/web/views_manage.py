@@ -45,6 +45,14 @@ def create():
     if not name:
         return render_template("new.html", textbooks=q.list_textbooks(conn),
                                error="Please give your class a name."), 400
+    # Optional, but if given it must look like an address: the static
+    # export's leak guard searches every page for each stored email.
+    email = (request.form.get("teacher_email") or "").strip()
+    local, _, domain = email.rpartition("@")
+    if email and not (len(email) >= 6 and local and "." in domain):
+        return render_template("new.html", textbooks=q.list_textbooks(conn),
+                               error="That email address doesn't look right. "
+                                     "Leave it blank or fix it."), 400
 
     textbook_id, error = _resolve_textbook(conn)
     if error:

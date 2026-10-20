@@ -3,6 +3,9 @@
 {% block title %}Admin - {{ site_name }}{% endblock %}
 {% block content %}
   {% if took_down %}<p class="linkbox warn">Entry {{ took_down }} taken down.</p>{% endif %}
+  {% if reissue_stale %}<p class="linkbox warn">Not re-issued: the manage link for class {{ reissue_stale }}
+    changed after that form was loaded (a reload or Back resubmits it), so nothing was changed now and
+    the current link still works. To re-issue again, use the button below.</p>{% endif %}
   <h1>Communal moderation queue</h1>
   <p class="muted">{{ pending|length }} entries awaiting review | {{ approved_count }} approved and live.</p>
 
@@ -65,7 +68,7 @@
         {% if entry.is_seed %}<span class="pill">seed</span>{% endif %}
         <form class="inline" method="post"
               action="{{ url_for('admin.delete_communal', token=token, entry_id=entry.id) }}"
-              onsubmit="return confirm('Take down {{ entry.name }} from the communal site?');">
+              onsubmit="return confirm({{ ('Take down ' ~ entry.name ~ ' from the communal site?')|tojson|forceescape }});">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="danger">Take down</button>
         </form>
@@ -77,12 +80,12 @@
   <p class="muted">Removes one entry, class or communal, by its id, and reclaims its photo files if
     nothing else uses them. The id is in every slide URL: /c/&lt;slug&gt;/entry/<strong>&lt;id&gt;</strong>/slide.pptx.
     A class entry shared to the communal site has a separate communal copy with its own id.</p>
-  <form class="inline" method="post" action="{{ url_for('admin.takedown', token=token) }}"
-        onsubmit="return confirm('Take down entry ' + this.entry_id.value + '? This cannot be undone.');">
+  <form class="inline" method="post" action="{{ url_for('admin.takedown', token=token) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Entry id <input name="entry_id" type="number" min="1" required></label>
-    <button type="submit" class="danger">Take down</button>
+    <button type="submit" class="secondary">Look up...</button>
   </form>
+  <p class="small muted">Nothing is deleted yet: the next page shows that entry and asks you to confirm.</p>
 
   <h2>Classes</h2>
   {% if not classes %}
@@ -115,6 +118,7 @@
                       action="{{ url_for('admin.reissue', token=token, cid=c.id) }}"
                       onsubmit="return confirm('Re-issue the manage link? The old link stops working immediately.');">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="expected" value="{{ c.manage_token_hash[:16] }}">
                   <button type="submit" class="secondary">Re-issue manage link</button>
                 </form>
               </td>
