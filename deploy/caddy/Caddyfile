@@ -2,15 +2,31 @@
 # /etc/caddy/Caddyfile, putting NNP_ADMIN_EMAIL from /etc/nnp/nnp.env in
 # place of the email placeholder below (ACME = the protocol Caddy uses to get
 # Let's Encrypt certificates; this is its contact address), or dropping the
-# global options block if NNP_ADMIN_EMAIL is unset.
+# email line if NNP_ADMIN_EMAIL is unset.
 # Check on the server with:
 #   sudo caddy validate --config /etc/caddy/Caddyfile
 # (not run where this file was written).
 #
-# No `log` directive anywhere: manage/admin tokens are URL paths, and an
-# access log would record them.
+# No access log (no `log` directive in any site block): manage/admin tokens
+# are URL paths, and an access log would record them. Caddy still logs
+# handler errors (every 502/504, e.g. while nnp restarts on an update) with
+# the request URI and client IP, so the global `log` block below rewrites
+# those fields to REDACTED. `caddy validate` is the syntax check (older
+# Caddy versions want the filters without the `fields` block); the repo test
+# only greps. Confirm on the server: stop nnp, curl /manage/x, and
+# `journalctl -u caddy` must not show /manage/x or your IP.
 {
 	email YOUR_EMAIL
+	log {
+		format filter {
+			wrap console
+			fields {
+				request>uri replace REDACTED
+				request>remote_ip replace REDACTED
+				request>client_ip replace REDACTED
+			}
+		}
+	}
 }
 
 nonnewtonian.org {

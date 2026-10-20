@@ -277,9 +277,9 @@ admin_email=$(envget "$ENV_FILE" NNP_ADMIN_EMAIL)
 if [ -n "$admin_email" ]; then
     sed "s|YOUR_EMAIL|$admin_email|" "$REPO/deploy/caddy/Caddyfile" > /etc/caddy/Caddyfile.new
 else
-    # Let's Encrypt rejects a placeholder contact, so drop the global
-    # options block (the only block opening with a bare "{" line) instead.
-    sed '/^{$/,/^}$/d' "$REPO/deploy/caddy/Caddyfile" > /etc/caddy/Caddyfile.new
+    # Let's Encrypt rejects a placeholder contact, so drop the email line
+    # (only that line: the global block also holds the log redaction).
+    sed '/^[[:space:]]*email YOUR_EMAIL$/d' "$REPO/deploy/caddy/Caddyfile" > /etc/caddy/Caddyfile.new
     echo "WARN: NNP_ADMIN_EMAIL not set in $ENV_FILE; Caddy registers with Let's Encrypt without a contact email (no expiry warnings). Set it and rerun to add one."
 fi
 # Validate before replacing, so a bad file never becomes the live config.

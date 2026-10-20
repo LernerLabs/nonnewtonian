@@ -52,12 +52,43 @@ def test_systemd_unit_restarts_forever_with_memory_cap():
         assert needle in unit
 
 
+def _caddy_global_block() -> str:
+    m = re.search(r"^\{\n.*?^\}\n", CADDYFILE, re.M | re.S)
+    assert m, "no global options block in the Caddyfile"
+    return m.group(0)
+
+
 def test_caddyfile_has_no_access_log_and_keeps_error_status():
-    # Tokens live in URL paths: no `log` directive anywhere.
-    directives = [line.split()[0] for line in CADDYFILE.splitlines()
+    # Tokens live in URL paths: no `log` directive in any site block (the
+    # global `log` block only configures the error-log encoder).
+    sites = CADDYFILE.replace(_caddy_global_block(), "")
+    directives = [line.split()[0] for line in sites.splitlines()
                   if line.strip() and not line.lstrip().startswith("#")]
     assert "log" not in directives
     assert "status {err.status_code}" in CADDYFILE
+
+
+def test_caddy_error_log_redacts_uri_and_client_ip():
+    # M7 review #23: with no `log` directive Caddy still logs every 502/504
+    # with the request URI (tokens) and client IP. Only a text check;
+    # `caddy validate` and a journal check on the server are the real ones.
+    block = _caddy_global_block()
+    assert re.search(r"^\tlog \{\n\t\tformat filter \{", block, re.M)
+    for field in ("request>uri", "request>remote_ip", "request>client_ip"):
+        assert re.search(rf"^\t+{field} replace REDACTED$", block, re.M), field
+
+
+@pytest.mark.skipif(shutil.which("sed") is None, reason="needs sed")
+def test_install_without_admin_email_keeps_the_log_redaction():
+    # The no-email path used to delete the whole global block, which now
+    # also holds the log filter. Run install.sh's own sed expression.
+    m = re.search(r"sed '([^']*)' \"\$REPO/deploy/caddy/Caddyfile\"", _install_step(6))
+    assert m, "no no-email sed in install.sh step 6"
+    out = subprocess.run(["sed", m.group(1)], input=CADDYFILE, capture_output=True,
+                         text=True, check=True).stdout
+    assert "YOUR_EMAIL" not in "\n".join(_code_lines(out))
+    assert "request>uri replace REDACTED" in out
+    assert out.count("{") == out.count("}")
 
 
 def _caddy_photo_regex() -> re.Pattern:
