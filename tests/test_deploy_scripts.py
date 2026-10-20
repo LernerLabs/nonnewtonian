@@ -128,3 +128,10 @@ def test_no_extra_tag_by_default(tmp_path):
     _, calls = _run(tmp_path)
     backup = next(c for c in calls if c.startswith("restic backup "))
     assert backup.count("--tag") == 1
+
+
+def test_backup_unit_gives_restic_a_cache_dir():
+    # No User= means no $HOME, so restic would run without a cache (review #25).
+    unit = (ROOT / "deploy/backup/nnp-backup.service").read_text().splitlines()
+    assert "CacheDirectory=nnp-backup" in unit
+    assert "Environment=RESTIC_CACHE_DIR=/var/cache/nnp-backup" in unit
