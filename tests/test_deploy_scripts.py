@@ -135,3 +135,13 @@ def test_backup_unit_gives_restic_a_cache_dir():
     unit = (ROOT / "deploy/backup/nnp-backup.service").read_text().splitlines()
     assert "CacheDirectory=nnp-backup" in unit
     assert "Environment=RESTIC_CACHE_DIR=/var/cache/nnp-backup" in unit
+
+
+def test_readme_passphrase_setup_is_never_world_readable_or_on_argv():
+    # tee under umask 022 made the key 0644 until the chmod, and the
+    # passphrase sat in shell history (review #26).
+    readme = (ROOT / "deploy/backup/README.md").read_text()
+    assert "sudo install -d -m 700 /etc/nnp-backup" in readme
+    assert "umask 077; read -rsp" in readme
+    assert "YOUR-LONG-RANDOM-PASSPHRASE" not in readme
+    assert "mkdir -p /etc/nnp-backup" not in readme

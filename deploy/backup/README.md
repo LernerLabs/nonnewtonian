@@ -47,12 +47,16 @@ could plant a symlink for root to overwrite.
    your password manager and in the root-only env file, nowhere else.
 
 4. **Pick the encryption passphrase and save it in your password manager first**
-   (it is the only key to the backups). Then put it on the server root-only:
+   (it is the only key to the backups). Then put it on the server root-only.
+   The directory and file are created 0700/0600 from the start (never briefly
+   world-readable), and the passphrase is pasted at a hidden prompt, so it
+   never appears on a command line or in your shell history:
    ```
-   sudo mkdir -p /etc/nnp-backup
-   printf '%s' 'YOUR-LONG-RANDOM-PASSPHRASE' | sudo tee /etc/nnp-backup/restic-pass >/dev/null
-   sudo chmod 600 /etc/nnp-backup/restic-pass
+   sudo install -d -m 700 /etc/nnp-backup
+   sudo bash -c 'umask 077; read -rsp "passphrase: " p; echo; printf "%s" "$p" > /etc/nnp-backup/restic-pass'
+   sudo ls -l /etc/nnp-backup/restic-pass
    ```
+   You should see: `-rw-------` and `root root` on the file.
 
 5. **Write the config** (chmod BEFORE you type secrets into it):
    ```
