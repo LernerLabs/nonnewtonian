@@ -102,3 +102,27 @@ def test_deploy_text_files_are_ascii():
                 if any(ord(ch) > 127 for ch in line):
                     offenders.append(f"{f.relative_to(ROOT)}:{i}")
     assert not offenders, offenders
+
+
+INSTALL_SH = (DEPLOY / "install.sh").read_text(encoding="utf-8")
+
+
+def _install_step(n: int) -> str:
+    """The text of install.sh's `step "n/9 ..."` section."""
+    m = re.search(rf'^step "{n}/9 .*?(?=^step "|\Z)', INSTALL_SH, re.M | re.S)
+    assert m, f"no step {n}/9 in install.sh"
+    return m.group(0)
+
+
+def _code_lines(text: str) -> list[str]:
+    return [line.strip() for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+
+
+def test_install_always_restarts_caddy_so_it_picks_up_group_nnp():
+    # M7 review #4: whether the live Caddy has group nnp cannot be read from
+    # /etc/group, and a reload keeps the old process.
+    step6 = _code_lines(_install_step(6))
+    assert "systemctl restart caddy" in step6
+    assert not [line for line in step6 if line.startswith("systemctl reload caddy")]
+    assert "CADDY_RESTART" not in INSTALL_SH

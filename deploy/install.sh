@@ -174,12 +174,9 @@ step "3/9 user and directories"
 id nnp >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/nnp --shell /usr/sbin/nologin nnp
 install -d -o nnp -g nnp -m 750 /var/lib/nnp /var/lib/nnp/photos /var/lib/nnp/export /var/lib/nnp/export/current
 install -d -m 700 /etc/nnp /var/lib/nnp-backup /var/lib/nnp-backup/staging
-# A running Caddy only picks up a new group on restart (step 6).
-CADDY_RESTART=0
-if ! id -nG caddy | grep -qw nnp; then
-    usermod -aG nnp caddy
-    CADDY_RESTART=1
-fi
+# A running Caddy only picks up a new group on restart, so step 6 always
+# restarts it (/etc/group cannot tell whether the live process has nnp yet).
+id -nG caddy | grep -qw nnp || usermod -aG nnp caddy
 id nnp
 id -nG caddy
 see "uid/gid lines for nnp, and 'nnp' among caddy's groups"
@@ -237,11 +234,10 @@ caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile.new
 mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
 systemctl daemon-reload
 systemctl enable --now caddy
-if [ "$CADDY_RESTART" = 1 ]; then
-    systemctl restart caddy
-else
-    systemctl reload caddy
-fi
+# Restart, not reload: a reload keeps the old process, which may predate
+# step 3's usermod (e.g. an earlier run died between step 3 and here) and
+# then cannot read /var/lib/nnp. Costs a moment of downtime per run.
+systemctl restart caddy
 systemctl is-active caddy
 see "'Valid configuration' from caddy validate, then 'active'"
 
