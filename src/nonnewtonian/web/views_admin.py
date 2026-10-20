@@ -60,13 +60,14 @@ def dashboard(token):
         "SELECT * FROM entries WHERE collection_id IS NULL AND communal_status='approved' "
         "ORDER BY scientist_name COLLATE NOCASE")]
     classes = conn.execute(
-        "SELECT c.id, c.name, c.slug, c.teacher_email, c.created_at, "
+        "SELECT c.id, c.name, c.slug, c.teacher_email, c.created_at, c.manage_token_hash, "
         "(SELECT count(*) FROM entries e WHERE e.collection_id=c.id) AS n "
         "FROM collections c ORDER BY c.created_at DESC").fetchall()
     return render_template(
         "admin.html", token=token, pending=pending_entries,
         approved_count=approved_count, shared=shared_entries, published=published,
         classes=classes, took_down=request.args.get("took_down", type=int),
+        reissue_stale=request.args.get("reissue_stale", type=int),
     )
 
 
@@ -123,15 +124,23 @@ def takedown(token):
 def reissue(token, cid):
     """Mint a fresh manage link for a class whose teacher lost theirs, with
     no SMTP needed (M7). The old link dies at once. The new token is shown
-    once on the response page and never logged or stored in readable form."""
+    once on the response page and never logged or stored in readable form.
+
+    The form carries the hash prefix it was rendered with, and the swap is
+    a compare-and-swap: a reload or Back+resubmit of the show-once page
+    (served no-store, so the browser re-POSTs) gets a "stale" banner
+    instead of silently killing the link just sent."""
     _check_token(token)
     conn = _db()
     coll = conn.execute("SELECT * FROM collections WHERE id=?", (cid,)).fetchone()
     if coll is None:
         abort(404)
-    t = repo.reissue_manage_token(conn, cid)
-    if t is None:  # row vanished between the SELECT and the UPDATE
-        abort(404)
+    seen = request.form.get("expected", "")
+    t = None
+    if len(seen) == 16 and coll["manage_token_hash"].startswith(seen):
+        t = repo.reissue_manage_token(conn, cid, expected_hash=coll["manage_token_hash"])
+    if t is None:  # stale form, or another re-issue won the race
+        return redirect(url_for("admin.dashboard", token=token, reissue_stale=cid))
     manage_url = _abs(url_for("manage.dashboard", token=t))
     welcome_url = _abs(url_for("manage.welcome", token=t))
     student_url = _abs(url_for("cls.submit", slug=coll["slug"]))

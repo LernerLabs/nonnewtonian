@@ -73,6 +73,13 @@ def _add_photo(app, tmp_path, entry_id, relpath):
     return f
 
 
+def _expected(app, cid) -> dict:
+    """The re-issue form's hidden CAS field, as the admin page renders it."""
+    h = _conn(app).execute("SELECT manage_token_hash FROM collections WHERE id=?",
+                           (cid,)).fetchone()[0]
+    return {"expected": h[:16]}
+
+
 def _manage_token_from(html: str) -> str:
     m = re.search(r'value="[^"]*/manage/([^"/]+)" id="manage-url"', html)
     assert m, html
@@ -91,7 +98,7 @@ def test_admin_page_lists_classes(client, app):
 def test_reissue_rotates_manage_link(client, app):
     old, cid, _ = _new_class(client, app)
     assert client.get(f"/manage/{old}").status_code == 200
-    r = client.post(f"/admin/{TOKEN}/collections/{cid}/reissue")
+    r = client.post(f"/admin/{TOKEN}/collections/{cid}/reissue", data=_expected(app, cid))
     assert r.status_code == 200
     html = r.get_data(as_text=True)
     assert "Shown once. The old link is already dead." in html
@@ -105,6 +112,26 @@ def test_reissue_rotates_manage_link(client, app):
     stored = _conn(app).execute("SELECT manage_token_hash FROM collections WHERE id=?",
                                 (cid,)).fetchone()[0]
     assert stored == tokens.hash_token(new) and new not in stored
+
+
+def test_reissue_resubmit_is_stale_not_a_second_rotation(client, app):
+    # M7 review #33: a reload / Back+resubmit of the show-once page re-POSTs
+    # the same form; it must not silently kill the link just sent.
+    _, cid, _ = _new_class(client, app)
+    page = client.get(f"/admin/{TOKEN}").get_data(as_text=True)
+    m = re.search(r'name="expected" value="([0-9a-f]{16})"', page)
+    assert m, page
+    form = {"expected": m.group(1)}
+    first = client.post(f"/admin/{TOKEN}/collections/{cid}/reissue", data=form)
+    sent = _manage_token_from(first.get_data(as_text=True))
+    again = client.post(f"/admin/{TOKEN}/collections/{cid}/reissue", data=form)
+    assert again.status_code == 302 and f"reissue_stale={cid}" in again.headers["Location"]
+    assert client.get(f"/manage/{sent}").status_code == 200
+    banner = client.get(again.headers["Location"]).get_data(as_text=True)
+    assert "Not re-issued" in banner
+    # a form with no CAS field changes nothing either
+    assert client.post(f"/admin/{TOKEN}/collections/{cid}/reissue").status_code == 302
+    assert client.get(f"/manage/{sent}").status_code == 200
 
 
 def test_reissue_get_not_allowed(client, app):
@@ -148,7 +175,7 @@ def test_reissue_forms_carry_csrf_token(tmp_path):
     assert form, page
     assert client.post(f"/admin/{TOKEN}/collections/{created.id}/reissue").status_code == 400
     r = client.post(f"/admin/{TOKEN}/collections/{created.id}/reissue",
-                    data={"csrf_token": form.group(1)})
+                    data={"csrf_token": form.group(1), **_expected(app, created.id)})
     assert r.status_code == 200
     take = re.search(r'action="/admin/%s/takedown"[^>]*>\s*'
                      r'<input type="hidden" name="csrf_token"' % TOKEN, page)
