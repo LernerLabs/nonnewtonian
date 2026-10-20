@@ -193,13 +193,13 @@ def test_takedown_class_entry_keeps_photo_shared_with_communal_clone(client, app
     lone_eid = _submit(client, app, slug, "Lise Meitner")
     lone_file = _add_photo(app, tmp_path, lone_eid, "cd/lone.jpg")
 
-    r = client.post(f"/admin/{TOKEN}/takedown", data={"entry_id": str(lone_eid)})
+    r = client.post(f"/admin/{TOKEN}/takedown/{lone_eid}/delete")
     assert r.status_code == 302 and f"took_down={lone_eid}" in r.headers["Location"]
     assert not lone_file.exists()  # orphan reclaimed
     assert _conn(app).execute("SELECT count(*) FROM entries WHERE id=?",
                               (lone_eid,)).fetchone()[0] == 0
 
-    r = client.post(f"/admin/{TOKEN}/takedown", data={"entry_id": str(shared_eid)})
+    r = client.post(f"/admin/{TOKEN}/takedown/{shared_eid}/delete")
     assert r.status_code == 302
     assert _conn(app).execute("SELECT count(*) FROM entries WHERE id=?",
                               (shared_eid,)).fetchone()[0] == 0
@@ -218,8 +218,7 @@ def test_takedown_communal_entry(client, app, tmp_path):
         "SELECT id FROM entries WHERE collection_id IS NULL AND adopted_from_entry_id=?",
         (eid,)).fetchone()[0]
     assert client.get("/scientists/emmy-noether").status_code == 200
-    assert client.post(f"/admin/{TOKEN}/takedown",
-                       data={"entry_id": str(clone_id)}).status_code == 302
+    assert client.post(f"/admin/{TOKEN}/takedown/{clone_id}/delete").status_code == 302
     assert client.get("/scientists/emmy-noether").status_code == 404
     # the old communal-only route still works too (refactored onto the same helper)
     eid2 = _submit(client, app, slug, "Lise Meitner")
@@ -237,14 +236,63 @@ def test_takedown_rejects_bad_requests(client, app):
     assert client.post(f"/admin/{TOKEN}/takedown", data={"entry_id": "abc"}).status_code == 404
     assert client.post(f"/admin/{TOKEN}/takedown", data={}).status_code == 404
     assert client.get(f"/admin/{TOKEN}/takedown").status_code == 405
+    assert client.post(f"/admin/{TOKEN}/takedown/999/delete").status_code == 404
 
 
 def test_takedown_wrong_admin_token_404(client, app):
     _, _, slug = _new_class(client, app)
     eid = _submit(client, app, slug, "Emmy Noether")
     assert client.post("/admin/wrong/takedown", data={"entry_id": str(eid)}).status_code == 404
+    assert client.post(f"/admin/wrong/takedown/{eid}/delete").status_code == 404
     assert _conn(app).execute("SELECT count(*) FROM entries WHERE id=?",
                               (eid,)).fetchone()[0] == 1
+
+
+def test_takedown_by_id_previews_before_deleting(client, app, tmp_path):
+    # M7 review #34: a typed id now shows what it names; only step 2 deletes.
+    tok, _, slug = _new_class(client, app, name="Mr. K's Physics")
+    client.post(f"/c/{slug}/submit", data={
+        "scientist_name": "Emmy Noether", "chapter": "3", "description": "d",
+        "license_grant": "1", "form_ts": "0", "contributor_name": "Zed Student",
+        "attribution_mode": "first_initial"})
+    eid = _conn(app).execute("SELECT id FROM entries ORDER BY id DESC LIMIT 1").fetchone()[0]
+    photo = _add_photo(app, tmp_path, eid, "ef/one.jpg")
+    r = client.post(f"/admin/{TOKEN}/takedown", data={"entry_id": str(eid)})
+    assert r.status_code == 200
+    page = r.get_data(as_text=True)
+    for shown in ("Emmy Noether", "Mr. K&#39;s Physics", "Zed Student", "first_initial"):
+        assert shown in page, shown
+    assert f'action="/admin/{TOKEN}/takedown/{eid}/delete"' in page
+    assert _conn(app).execute("SELECT count(*) FROM entries WHERE id=?",
+                              (eid,)).fetchone()[0] == 1
+    assert photo.exists()
+    r = client.post(f"/admin/{TOKEN}/takedown/{eid}/delete")
+    assert r.status_code == 302 and f"took_down={eid}" in r.headers["Location"]
+    assert not photo.exists()
+
+
+def test_takedown_confirm_form_carries_csrf_token(tmp_path):
+    app = _make_app(tmp_path, WTF_CSRF_ENABLED=True)
+    client = app.test_client()
+    conn = _conn(app)
+    conn.execute("INSERT INTO entries(collection_id,scientist_name,scientist_slug,description,"
+                 "status,communal_status,created_at,updated_at) VALUES(NULL,'A B','a-b','d',"
+                 "'approved','approved',?,?)", (NOW, NOW))
+    conn.commit()
+    eid = conn.execute("SELECT id FROM entries").fetchone()[0]
+    page = client.get(f"/admin/{TOKEN}").get_data(as_text=True)
+    tok = re.search(r'action="/admin/%s/takedown"[^>]*>\s*'
+                    r'<input type="hidden" name="csrf_token" value="([^"]+)"' % TOKEN, page)
+    confirm = client.post(f"/admin/{TOKEN}/takedown",
+                          data={"csrf_token": tok.group(1), "entry_id": str(eid)})
+    assert confirm.status_code == 200
+    step2 = re.search(r'action="/admin/%s/takedown/%d/delete"[^>]*>\s*'
+                      r'<input type="hidden" name="csrf_token" value="([^"]+)"' % (TOKEN, eid),
+                      confirm.get_data(as_text=True))
+    assert step2
+    assert client.post(f"/admin/{TOKEN}/takedown/{eid}/delete").status_code == 400
+    assert client.post(f"/admin/{TOKEN}/takedown/{eid}/delete",
+                       data={"csrf_token": step2.group(1)}).status_code == 302
 
 
 @pytest.mark.parametrize("name", ["Miles O'Brien", "X');fetch('/x');('",

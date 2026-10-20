@@ -109,12 +109,30 @@ def takedown(token):
     every slide URL (/c/<slug>/entry/<id>/slide.pptx), so a complaint
     about a student's name on a class page no longer needs hand SQL.
     A communal clone is a separate entry: taking down a class entry does
-    not remove its public copy (take that down by its own id)."""
+    not remove its public copy (take that down by its own id).
+
+    Step 1 of 2: deletes nothing; shows the entry the typed id names
+    (scientist, class, contributor) so a typo is visible before the
+    irreversible step 2, takedown_delete."""
     _check_token(token)
     entry_id = request.form.get("entry_id", type=int)
+    row = None if entry_id is None else _db().execute(
+        "SELECT e.id, e.scientist_name, e.contributor_name, e.attribution_mode, e.status, "
+        "e.communal_status, c.name AS class_name, "
+        "(SELECT count(*) FROM photos p WHERE p.entry_id=e.id) AS n_photos "
+        "FROM entries e LEFT JOIN collections c ON e.collection_id = c.id "
+        "WHERE e.id=?", (entry_id,)).fetchone()
+    if row is None:
+        abort(404)
+    return render_template("admin_takedown_confirm.html", token=token, e=row)
+
+
+@bp.route("/admin/<token>/takedown/<int:entry_id>/delete", methods=["POST"])
+def takedown_delete(token, entry_id):
+    """Step 2 of 2: delete the entry confirmed on the step-1 page."""
+    _check_token(token)
     conn = _db()
-    if entry_id is None or not conn.execute(
-            "SELECT 1 FROM entries WHERE id=?", (entry_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM entries WHERE id=?", (entry_id,)).fetchone():
         abort(404)
     _delete_entry_and_orphan_photos(conn, entry_id)
     return redirect(url_for("admin.dashboard", token=token, took_down=entry_id))

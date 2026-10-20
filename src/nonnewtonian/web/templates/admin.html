@@ -80,12 +80,12 @@
   <p class="muted">Removes one entry, class or communal, by its id, and reclaims its photo files if
     nothing else uses them. The id is in every slide URL: /c/&lt;slug&gt;/entry/<strong>&lt;id&gt;</strong>/slide.pptx.
     A class entry shared to the communal site has a separate communal copy with its own id.</p>
-  <form class="inline" method="post" action="{{ url_for('admin.takedown', token=token) }}"
-        onsubmit="return confirm('Take down entry ' + this.entry_id.value + '? This cannot be undone.');">
+  <form class="inline" method="post" action="{{ url_for('admin.takedown', token=token) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Entry id <input name="entry_id" type="number" min="1" required></label>
-    <button type="submit" class="danger">Take down</button>
+    <button type="submit" class="secondary">Look up...</button>
   </form>
+  <p class="small muted">Nothing is deleted yet: the next page shows that entry and asks you to confirm.</p>
 
   <h2>Classes</h2>
   {% if not classes %}
