@@ -45,7 +45,9 @@ STATIC_PAGES = ["/", "/scientists", "/textbooks", "/wanted", "/about", "/for-tea
 # Same shape the Caddyfile serves; anything else under /photos/ is refused.
 _PHOTO_RE = re.compile(r"^[0-9a-f]{2}/[0-9a-f]{64}\.(jpg|png|gif|webp)$")
 _ATTR_RE = re.compile(r'\b(href|src|action)="([^"]*)"')
-_FORBIDDEN_LINK_PREFIXES = ("/manage/", "/admin/", "/recover", "/c/")
+# "/recover/" with the slash: the bare /recover form holds no token and is a
+# legitimate live-site link; /recover/confirm/<signed> never belongs in an export.
+_FORBIDDEN_LINK_PREFIXES = ("/manage/", "/admin/", "/recover/", "/c/")
 _ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 CSV_COLUMNS = ["name", "slug", "description", "sources", "credited_as", "placements",
                "photo_file", "photo_license", "photo_attribution", "license_notice"]
@@ -185,7 +187,8 @@ def _leak_guard(tmp: Path, expected: set[str], slugs: set[str], needles, site_ur
     for rel in sorted(actual):
         for where, text in _texts(tmp / rel, rel):
             for needle, label in needles:
-                if needle in text:
+                # Jinja autoescapes ' and & in HTML, so check the escaped form too.
+                if needle in text or html.escape(needle, quote=True) in text:
                     raise ExportError(f"leak guard: {where} contains {label}")
             if rel.endswith(".html"):
                 page_dir = posixpath.dirname(rel)

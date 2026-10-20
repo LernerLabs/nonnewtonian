@@ -111,7 +111,7 @@ def create_app(config: dict | None = None, *, production: bool = False) -> Flask
         return resp
 
     # Capability tokens live in URL paths; keep them out of the error log.
-    _token_path = re.compile(r"^/(manage|admin|recover)/[^/]+")
+    _token_path = re.compile(r"^/(manage|admin|recover)/.+")
 
     def _log_exception(self, exc_info):
         path = _token_path.sub(r"/\1/REDACTED", request.path)

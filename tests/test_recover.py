@@ -160,7 +160,7 @@ def test_fourth_request_same_address_429(client, outbox):
 
 
 def test_hostile_class_name_single_line_ascii(client, outbox):
-    _create_class(client, name="Evil\r\nBcc: x@y.z\n Café — " + "A" * 100)
+    _create_class(client, name="Evil\r\nBcc: x@y.z\n Caf\u00e9 \u2014 " + "A" * 100)
     _ask(client)
     to, subject, body = outbox[0]
     assert subject == "Your NonNewtonian Physicists class link"

@@ -230,6 +230,23 @@ def test_manage_exception_logged_redacted(tmp_path, caplog):
     assert secret_token not in caplog.text
 
 
+def test_recover_confirm_exception_logged_redacted(tmp_path, caplog):
+    # /recover/confirm/<signed>: the whole remainder of the path must go.
+    app = create_app({"DB_PATH": str(_migrated_db(tmp_path)),
+                      "PHOTO_DIR": str(tmp_path / "photos"), "PROPAGATE_EXCEPTIONS": False})
+
+    def boom(signed):
+        raise ValueError("kaboom")
+
+    app.view_functions["recover.confirm"] = boom
+    signed = "SIGNED-SECRET-abcdef"
+    with caplog.at_level(logging.ERROR):
+        app.test_client().get(f"/recover/confirm/{signed}")
+    logged = "\n".join(rec.getMessage() for rec in caplog.records)
+    assert "Exception on /recover/REDACTED [GET]" in logged
+    assert signed not in caplog.text
+
+
 @pytest.mark.parametrize("path", ["/manage/x", "/admin/x"])
 def test_token_paths_are_no_store(tmp_path, path):
     app = create_app({"DB_PATH": str(_migrated_db(tmp_path)),

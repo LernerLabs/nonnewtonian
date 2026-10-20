@@ -32,9 +32,11 @@ ping /start
 
 [ -d "$src" ] || { echo "export dir $src does not exist" >&2; exit 1; }
 # A compromised app user could plant a symlink to the deploy key in the export.
-if find "$src" ! -type f ! -type d | grep -q .; then
+# (No pipe into grep -q: under pipefail a SIGPIPE'd find would skip the refusal.)
+bad=$(find "$src" ! -type f ! -type d)
+if [ -n "$bad" ]; then
     echo "refusing: non-regular file in export:" >&2
-    find "$src" ! -type f ! -type d >&2
+    printf '%s\n' "$bad" >&2
     exit 1
 fi
 
