@@ -11,16 +11,20 @@ textbook, teachers moderate via a magic link, and every approved entry
 lands on a chapter-indexed public page with a ready-to-teach PowerPoint
 slide. No accounts; nothing for teachers or students to install.
 
-Status: **M6 of 8 done** — the core library (`nonnewtonian`, ported from
-the original `makesyllabus.py` with every audited bug fixed and the 39
-real scientist files as its acceptance suite) plus the full Flask app:
-the browse-first read-only site, token-gated admin queue, class
-collections via magic link, communal opt-in, and the auto-resizing
-WordPress embed. Each milestone was shaped by an adversarial review and
-all confirmed findings fixed. What remains is **M7** (deploy) and
-**M8** (one-command subject-specific instances). The full implementation
-plan (design, milestones, and the adversarial review that shaped it)
-lives in Michael's reports repo.
+Status: **M7 of 8 code-complete.** Done: the core library (`nonnewtonian`, ported
+from the original `makesyllabus.py` with every audited bug fixed and the 39
+real scientist files as its acceptance suite) plus the full Flask app: the
+browse-first read-only site, token-gated admin queue, class collections via
+magic link, communal opt-in, and the auto-resizing WordPress embed. Each
+milestone was shaped by an adversarial review and all confirmed findings
+fixed. M7 adds the production deploy and ops tooling under `deploy/`
+(gunicorn, systemd, Caddy, encrypted backups, a nightly static mirror, a
+daily self-check, admin re-issue and takedown, optional email recovery);
+it is merged but not yet run on the server, which is the operator's first
+session in [`deploy/RUNBOOK.md`](deploy/RUNBOOK.md). What remains after
+that is **M8** (one-command subject-specific instances). The full
+implementation plan (design, milestones, and the adversarial review that
+shaped it) lives in Michael's reports repo.
 
 ## The library
 
@@ -51,6 +55,13 @@ python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/pytest
 ```
+
+The `nonnewtonian` command (installed by `pip install -e .`) has three
+subcommands: `seed-import` (load the original corpus as communal-pending
+seeds), `migrate --db PATH [--check]` (apply or list schema migrations), and
+`export-static` (render the public communal site to a directory). Without
+the console script, `python -m nonnewtonian.cli` does the same. On the
+server, run it through `deploy/nnp-cli`; see the runbook.
 
 `tests/fixtures/` carries the 39 real scientist files, both original
 TOC CSVs (including the broken M&I one, kept broken on purpose as a
