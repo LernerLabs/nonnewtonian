@@ -14,6 +14,7 @@ opens one connection per request.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 
@@ -56,8 +57,21 @@ def pending_migrations(conn: sqlite3.Connection, migrations_dir: Path | None = N
     return [p.name for p in migration_files(migrations_dir) if p.name not in done]
 
 
+# Transaction control inside a migration file would end the transaction
+# migrate() wraps around it. A trigger body's BEGIN ... END; is allowed, so
+# a bare "END;" used as COMMIT is not caught; do not write one.
+_TXN_STMT = re.compile(
+    r"\bBEGIN\s*(DEFERRED|IMMEDIATE|EXCLUSIVE)?\s*(TRANSACTION)?\s*;"
+    r"|\bCOMMIT\b|\bROLLBACK\b|\bEND\s+TRANSACTION\b|\bSAVEPOINT\b|\bRELEASE\b",
+    re.IGNORECASE)
+
+
 def migrate(conn: sqlite3.Connection, *, now: str, migrations_dir: Path | None = None) -> list[str]:
     """Apply pending migrations in order.  Returns the names applied.
+
+    Each file runs in ONE transaction together with its applied_migrations
+    row (SQLite DDL is transactional), so a failure partway leaves that
+    migration wholly unapplied and unrecorded, and a rerun starts clean.
 
     ``now`` is passed in (never generated here) so callers control the
     timestamp and runs are reproducible.
@@ -67,12 +81,21 @@ def migrate(conn: sqlite3.Connection, *, now: str, migrations_dir: Path | None =
     for path in migration_files(migrations_dir):
         if path.name in done:
             continue
-        conn.executescript(path.read_text(encoding="utf-8"))
-        conn.execute(
-            "INSERT INTO applied_migrations(name, applied_at) VALUES(?, ?)",
-            (path.name, now),
-        )
-        conn.commit()
+        sql = path.read_text(encoding="utf-8")
+        if _TXN_STMT.search(sql):
+            raise RuntimeError(f"{path.name} has its own transaction control; "
+                               "migrate() wraps each file in one transaction")
+        try:
+            conn.executescript("BEGIN IMMEDIATE;\n" + sql)
+            conn.execute(
+                "INSERT INTO applied_migrations(name, applied_at) VALUES(?, ?)",
+                (path.name, now),
+            )
+            conn.commit()
+        except BaseException:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
         newly.append(path.name)
     return newly
 

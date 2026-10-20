@@ -84,3 +84,58 @@ def test_migrate_create_makes_a_0600_db_even_under_a_loose_umask(tmp_path):
     conn = db_mod.connect(db_path)
     assert db_mod.pending_migrations(conn) == []
     conn.close()
+
+
+def _mig_dir(tmp_path, files):
+    d = tmp_path / "migs"
+    d.mkdir()
+    for name, sql in files.items():
+        (d / name).write_text(sql)
+    return d
+
+
+def test_a_failing_migration_is_rolled_back_whole(tmp_path):
+    # M7 review #36: executescript used to autocommit each statement, so a
+    # failure halfway left a half-applied, unrecorded schema.
+    import pytest
+    import sqlite3
+    d = _mig_dir(tmp_path, {
+        "0001_a.sql": "CREATE TABLE a (x);",
+        "0002_b.sql": "CREATE TABLE b (x);\nINSERT INTO a VALUES (1);\nCREATE TABLE a (y);",
+    })
+    conn = db_mod.connect(tmp_path / "m.db")
+    with pytest.raises(sqlite3.OperationalError, match="already exists"):
+        db_mod.migrate(conn, now="t", migrations_dir=d)
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "a" in tables and "b" not in tables
+    assert conn.execute("SELECT count(*) FROM a").fetchone()[0] == 0
+    assert db_mod.applied_migrations(conn) == {"0001_a.sql"}
+    assert not conn.in_transaction
+    # fix the file and rerun: it applies cleanly
+    (d / "0002_b.sql").write_text("CREATE TABLE b (x);\nINSERT INTO a VALUES (1);")
+    assert db_mod.migrate(conn, now="t", migrations_dir=d) == ["0002_b.sql"]
+    conn.close()
+
+
+def test_migration_with_its_own_transaction_control_is_refused(tmp_path):
+    import pytest
+    d = _mig_dir(tmp_path, {"0001_a.sql": "BEGIN;\nCREATE TABLE a (x);\nCOMMIT;"})
+    conn = db_mod.connect(tmp_path / "m.db")
+    with pytest.raises(RuntimeError, match="own transaction control"):
+        db_mod.migrate(conn, now="t", migrations_dir=d)
+    assert db_mod.applied_migrations(conn) == set()
+    conn.close()
+
+
+def test_shipped_migrations_carry_no_transaction_control():
+    for path in db_mod.migration_files():
+        assert not db_mod._TXN_STMT.search(path.read_text()), path.name
+
+
+def test_trigger_body_is_not_mistaken_for_transaction_control(tmp_path):
+    d = _mig_dir(tmp_path, {"0001_a.sql": (
+        "CREATE TABLE a (x);\nCREATE TABLE log (x);\n"
+        "CREATE TRIGGER t AFTER INSERT ON a\nBEGIN\n  INSERT INTO log VALUES (new.x);\nEND;")})
+    conn = db_mod.connect(tmp_path / "m.db")
+    assert db_mod.migrate(conn, now="t", migrations_dir=d) == ["0001_a.sql"]
+    conn.close()
