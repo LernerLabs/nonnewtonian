@@ -12,3 +12,4 @@ examples/.photo-cache/
 examples/screenshots/
 .DS_Store
 data/*.log
+.claude/worktrees/
