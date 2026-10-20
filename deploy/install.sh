@@ -83,21 +83,22 @@ mirror_key() {
     local d=/var/lib/nnp/.ssh
     step "mirror deploy key"
     id nnp >/dev/null 2>&1 || die "user nnp missing; run sudo $REPO/deploy/install.sh first"
+    no_symlink "$d"
     install -d -o nnp -g nnp -m 700 "$d"
+    # Everything inside .ssh runs as nnp: nnp owns the directory, so root
+    # writing, chowning or reading there would follow links nnp planted.
     [ -e "$d/mirror_ed25519" ] \
         || runuser -u nnp -- ssh-keygen -q -t ed25519 -N '' -C nnp-mirror@nonnewtonian.org -f "$d/mirror_ed25519"
     # Recorded once (trust on first use); delete known_hosts to re-record.
-    if [ ! -s "$d/known_hosts" ]; then
-        ssh-keyscan -t ed25519 github.com > "$d/known_hosts.new" 2>/dev/null
-        [ -s "$d/known_hosts.new" ] || die "ssh-keyscan github.com returned nothing (network?)"
-        mv "$d/known_hosts.new" "$d/known_hosts"
-    fi
-    chown nnp:nnp "$d/known_hosts"
-    chmod 644 "$d/known_hosts"
+    runuser -u nnp -- sh -c 'umask 022; [ -s "$1/known_hosts" ] && exit 0
+        ssh-keyscan -t ed25519 github.com > "$1/known_hosts.new" 2>/dev/null
+        [ -s "$1/known_hosts.new" ] || exit 1
+        mv "$1/known_hosts.new" "$1/known_hosts"' sh "$d" \
+        || die "ssh-keyscan github.com returned nothing (network?)"
     echo "Deploy key (GitHub: mglerner/nonnewtonian-mirror -> Settings -> Deploy keys -> Add, WITH write access):"
-    cat "$d/mirror_ed25519.pub"
+    runuser -u nnp -- cat "$d/mirror_ed25519.pub"
     echo "github.com host key recorded in $d/known_hosts:"
-    ssh-keygen -lf "$d/known_hosts"
+    runuser -u nnp -- ssh-keygen -lf "$d/known_hosts"
     echo "Compare that SHA256 with https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints"
     see "an ssh-ed25519 public key line, and a github.com ED25519 SHA256 fingerprint that matches GitHub's page exactly (if not, STOP: delete $d/known_hosts)"
 }

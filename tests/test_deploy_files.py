@@ -205,3 +205,50 @@ def test_install_refuses_symlinked_nnp_dirs_and_writes_down_html_as_nnp():
     step6 = _install_step(6)
     assert 'runuser -u nnp -- install -m 640 "$REPO/deploy/caddy/down.html"' in step6
     assert "install -o nnp" not in step6
+
+
+MIRROR_KEY_STUBS = dict(
+    INSTALL_STUBS,
+    id="exit 0\n",
+    install='echo "install $*" >> "$STUB_LOG"\nfor last; do :; done\nmkdir -p "$last"\n',
+    **{
+        "ssh-keygen": 'echo "ssh-keygen RUNUSER=${RUNUSER:-0} $*" >> "$STUB_LOG"\n'
+                      'if [ "$1" = -q ]; then for last; do :; done; : > "$last"; '
+                      'echo "ssh-ed25519 AAAA nnp" > "$last.pub"; fi\n',
+        "ssh-keyscan": 'echo "ssh-keyscan RUNUSER=${RUNUSER:-0} $*" >> "$STUB_LOG"\n'
+                       'echo "github.com ssh-ed25519 AAAAgh"\n',
+    },
+)
+
+
+def _run_mirror_key(tmp_path):
+    # Point the function's hard-coded /var/lib/nnp at a scratch dir.
+    fn = _install_function("mirror_key").replace("/var/lib/nnp", str(tmp_path / "nnp"))
+    names = ["die", "no_symlink", "step", "see"]
+    body = fn + "\nmirror_key\n"
+    return _run_install_functions(tmp_path, names, body, stubs=MIRROR_KEY_STUBS,
+                                  env_extra={"REPO": "/opt/nnp"})
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_mirror_key_touches_nnps_ssh_dir_only_as_nnp(tmp_path):
+    # M7 review #6: root used to write, chown and chmod known_hosts there.
+    (tmp_path / "nnp").mkdir()
+    result, calls = _run_mirror_key(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "nnp/.ssh/known_hosts").read_text() == "github.com ssh-ed25519 AAAAgh\n"
+    assert any(c.startswith("ssh-keyscan RUNUSER=1") for c in calls)
+    assert all("RUNUSER=1" in c for c in calls if c.startswith(("ssh-keyscan", "ssh-keygen")))
+    assert not any(c.startswith(("chown", "chmod")) for c in calls)
+    assert "ssh-ed25519 AAAA nnp" in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_mirror_key_refuses_a_symlinked_ssh_dir(tmp_path):
+    (tmp_path / "nnp").mkdir()
+    (tmp_path / "root").mkdir()
+    (tmp_path / "nnp/.ssh").symlink_to(tmp_path / "root")
+    result, calls = _run_mirror_key(tmp_path)
+    assert result.returncode != 0
+    assert "is a symlink" in result.stderr
+    assert not any(c.startswith(("install", "runuser")) for c in calls)
