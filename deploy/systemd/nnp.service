@@ -1,0 +1,38 @@
+# NonNewtonian Physicists web app. install.sh copies this to
+# /etc/systemd/system/nnp.service. Check on the server with:
+#   sudo systemd-analyze verify /etc/systemd/system/nnp.service
+# (not run where this file was written).
+#
+# Deliberately omitted: SystemCallFilter, CapabilityBoundingSet=,
+# MemoryDenyWriteExecute (boot-failure risk on launch night, marginal gain).
+# /opt/nnp is read-only to nnp, so install.sh runs compileall as root.
+[Unit]
+Description=NonNewtonian Physicists (gunicorn)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+User=nnp
+Group=nnp
+UMask=0027
+EnvironmentFile=/etc/nnp/nnp.env
+WorkingDirectory=/var/lib/nnp
+ExecStart=/opt/nnp/.venv/bin/gunicorn --config /opt/nnp/deploy/gunicorn.conf.py nonnewtonian.web.wsgi:app
+Restart=always
+RestartSec=3
+MemoryHigh=330M
+MemoryMax=400M
+MemorySwapMax=256M
+OOMScoreAdjust=300
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nnp
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target

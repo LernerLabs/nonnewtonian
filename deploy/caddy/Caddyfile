@@ -1,0 +1,72 @@
+# Caddy config for NonNewtonian Physicists. install.sh copies this to
+# /etc/caddy/Caddyfile, putting NNP_ADMIN_EMAIL from /etc/nnp/nnp.env in
+# place of the email placeholder below (ACME = the protocol Caddy uses to get
+# Let's Encrypt certificates; this is its contact address), or dropping the
+# global options block if NNP_ADMIN_EMAIL is unset.
+# Check on the server with:
+#   sudo caddy validate --config /etc/caddy/Caddyfile
+# (not run where this file was written).
+#
+# No `log` directive anywhere: manage/admin tokens are URL paths, and an
+# access log would record them.
+{
+	email YOUR_EMAIL
+}
+
+nonnewtonian.org {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	request_body {
+		max_size 11MB
+	}
+	# Photos straight from disk so they survive an app crash. Strict path
+	# regex: only content-hash files, never app.db. Same exposure as the
+	# app's /photos route (no approval check; unguessable 64-hex URLs).
+	# photos.normalize_image only ever writes .jpg or .png.
+	# Cache is 1 day, not immutable, so a takedown is not pinned in
+	# browsers for a year.
+	@photo path_regexp ^/photos/[0-9a-f]{2}/[0-9a-f]{64}\.(jpg|png)$
+	handle @photo {
+		root * /var/lib/nnp
+		header Cache-Control "public, max-age=86400"
+		header X-Content-Type-Options nosniff
+		file_server
+	}
+	handle /photos/* {
+		respond 404
+	}
+	handle_path /static/* {
+		root * /opt/nnp/src/nonnewtonian/web/static
+		file_server
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8000
+	}
+	# App down: serve the latest static export (LATER package) or down.html,
+	# keeping the error status so the uptime prober still sees an outage.
+	# If `caddy validate` rejects the status placeholder, drop the status
+	# line and switch the prober to a keyword monitor (see deploy/RUNBOOK.md).
+	handle_errors {
+		@down expression `{err.status_code} in [502, 504]`
+		handle @down {
+			root * /var/lib/nnp/export/current
+			try_files {path} {path}/index.html /down.html
+			file_server {
+				status {err.status_code}
+			}
+		}
+	}
+}
+
+www.nonnewtonian.org {
+	redir https://nonnewtonian.org{uri} permanent
+}
+
+# Uncomment ONLY after DNS for these names points here; otherwise Caddy
+# retries ACME and burns Let's Encrypt failed-validation limits.
+# nonnewtonianphysicists.com, www.nonnewtonianphysicists.com {
+#	redir https://nonnewtonian.org{uri} permanent
+# }
