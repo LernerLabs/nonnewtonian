@@ -238,16 +238,32 @@ def store_bytes(data: bytes, dest_dir: Path, *, original_url: str | None = None)
     subdir = Path(dest_dir) / digest[:2]
     subdir.mkdir(parents=True, exist_ok=True)
     path = subdir / f"{digest}.{ext}"
-    if not path.exists():
+    # A zero-length file under the final name (left by a host crash before
+    # this fsync existed) is treated as missing, so re-uploading repairs it.
+    if not path.exists() or path.stat().st_size == 0:
         # Write-then-rename so a crash or ENOSPC never leaves a truncated
         # file under the final content-hash name (which would then be
-        # trusted forever by the exists() check above).  The tmp name is
-        # per process and thread so concurrent stores of one image cannot
-        # clobber each other's partial writes.
+        # trusted forever by the exists() check above).  fsync the data
+        # before the rename and the directory after it: on ext4 a rename
+        # to a new name can reach the journal before the data does, so a
+        # hard reboot could otherwise leave a 0-byte file (M7 review #18).
+        # The tmp name is per process and thread so concurrent stores of
+        # one image cannot clobber each other's partial writes.
+        # Known gap: a SIGKILL (e.g. OOM) mid-write skips the cleanup below
+        # and leaves a ".<digest>.<pid>.<tid>.tmp" orphan; nothing sweeps
+        # them (harmless to serving, but restic backs them up).
         tmp = subdir / f".{digest}.{os.getpid()}.{threading.get_ident()}.tmp"
         try:
-            tmp.write_bytes(normalized)
+            with open(tmp, "wb") as handle:
+                handle.write(normalized)
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(tmp, path)
+            dir_fd = os.open(subdir, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
         except BaseException:
             tmp.unlink(missing_ok=True)
             raise

@@ -360,3 +360,36 @@ def test_store_bytes_atomic(tmp_path, monkeypatch):
     stored = photos.store_bytes(_jpeg_bytes(), tmp_path)
     assert stored.path.exists()
     assert [p for p in tmp_path.rglob("*") if p.is_file()] == [stored.path]
+
+
+def test_store_bytes_fsyncs_file_and_dir(tmp_path, monkeypatch):
+    """M7 review #18: data is fsynced before the rename, the directory
+    after it, so a hard reboot cannot leave a 0-byte final file."""
+    import os
+    import stat
+
+    events = []
+    real_fsync, real_replace = os.fsync, os.replace
+
+    def fsync(fd):
+        kind = "dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file"
+        events.append(kind)
+        real_fsync(fd)
+
+    def replace(src, dst):
+        events.append("replace")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(photos.os, "fsync", fsync)
+    monkeypatch.setattr(photos.os, "replace", replace)
+    photos.store_bytes(_jpeg_bytes(), tmp_path)
+    assert events == ["file", "replace", "dir"]
+
+
+def test_store_bytes_repairs_zero_length_file(tmp_path):
+    stored = photos.store_bytes(_jpeg_bytes(), tmp_path)
+    stored.path.write_bytes(b"")  # what a pre-fsync host crash could leave
+    again = photos.store_bytes(_jpeg_bytes(), tmp_path)
+    assert again.path == stored.path
+    assert stored.path.stat().st_size > 0
+    Image.open(stored.path).verify()
