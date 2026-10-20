@@ -86,6 +86,7 @@ sysctl vm.swappiness
 see "a swap line (e.g. /swapfile file 1024M) and vm.swappiness = 10"
 
 step "2/9 packages"
+apt-get update -q
 apt-get install -y -q python3-venv git sqlite3 restic curl
 if ! apt-cache policy caddy | grep -q dl.cloudsmith.io; then
     # Official Caddy apt repo, from https://caddyserver.com/docs/install
