@@ -264,3 +264,59 @@ def test_caddy_fallback_redirects_directories_to_a_trailing_slash():
     assert "not path */" in matcher.group(1)
     assert "file {path}/index.html" in matcher.group(1)
     assert errors.index("redir @dir_no_slash {path}/") < errors.index("try_files")
+
+
+def test_install_rollback_hint_reruns_install_and_returns_to_main():
+    # M7 review #15: the old hint left /opt/nnp detached and skipped pip,
+    # the units and the health check.
+    step8 = _install_step(8)
+    assert 'checkout $(cat "$LAST_GOOD") && sudo $REPO/deploy/install.sh' in step8
+    assert "checkout main && sudo git -C $REPO pull --ff-only" in step8
+    assert "systemctl restart nnp\" >&2" not in step8
+
+
+def _run_premigration_backup(tmp_path, *, timer_enabled=True, backup_rc=0):
+    benv = tmp_path / "nnp-backup.env"
+    benv.write_text("RESTIC_REPOSITORY=b2:test:nnp\n")
+    backup = tmp_path / "nnp-backup.sh"
+    backup.write_text('#!/bin/sh\necho "backup tag=${NNP_BACKUP_TAG:-} repo=$RESTIC_REPOSITORY"'
+                      f' >> "$STUB_LOG"\nexit {backup_rc}\n')
+    backup.chmod(0o755)
+    fn = (_install_function("premigration_backup")
+          .replace("/etc/nnp-backup.env", str(benv))
+          .replace("/opt/nnp/deploy/backup/nnp-backup.sh", str(backup)))
+    stubs = {"systemctl": f'echo "systemctl $*" >> "$STUB_LOG"\nexit {0 if timer_enabled else 1}\n'}
+    body = fn + '\nSNAPSHOT=0\npremigration_backup\necho "SNAPSHOT=$SNAPSHOT"\n'
+    return _run_install_functions(tmp_path, ["die"], body, stubs=stubs)
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_premigration_backup_passes_the_tag_and_records_success(tmp_path):
+    # M7 review #24: the snapshot used the nightly tag and could be pruned.
+    result, calls = _run_premigration_backup(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "backup tag=pre-migration repo=b2:test:nnp" in calls
+    assert result.stdout.strip().endswith("SNAPSHOT=1")
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_premigration_backup_failure_stops_before_migrating(tmp_path):
+    result, _ = _run_premigration_backup(tmp_path, backup_rc=1)
+    assert result.returncode != 0
+    assert "pre-migration backup failed" in result.stderr
+    assert "SNAPSHOT=" not in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_premigration_backup_skipped_leaves_no_snapshot_claim(tmp_path):
+    result, calls = _run_premigration_backup(tmp_path, timer_enabled=False)
+    assert result.returncode == 0, result.stderr
+    assert not any(c.startswith("backup") for c in calls)
+    assert result.stdout.strip().endswith("SNAPSHOT=0")
+
+
+def test_install_restore_hint_only_when_a_snapshot_was_taken():
+    step8 = _install_step(8)
+    hint = step8.index("restore the pre-migration snapshot")
+    guard = step8.rindex("if ", 0, hint)
+    assert '[ "$SNAPSHOT" = 1 ]' in step8[guard:hint]

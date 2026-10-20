@@ -51,6 +51,21 @@ own_db_files() {
     runuser -u nnp -- chmod 600 "$DB"
 }
 
+# Before a migration: snapshot with an extra restic tag, run directly rather
+# than through nnp-backup.service so the tag can be passed. nnp-backup.sh
+# keeps pre-migration snapshots out of its pruning (prune them by hand).
+# Sets SNAPSHOT=1 only when the snapshot was taken.
+premigration_backup() {
+    if systemctl is-enabled --quiet nnp-backup.timer; then
+        echo "pending migrations: taking a pre-migration backup snapshot first"
+        bash -c "set -a; . /etc/nnp-backup.env; set +a; NNP_BACKUP_TAG=pre-migration exec /opt/nnp/deploy/backup/nnp-backup.sh" \
+            || die "pre-migration backup failed; not migrating (output above)"
+        SNAPSHOT=1
+    else
+        echo "WARN: pending migrations and backups are not enabled yet; no pre-migration snapshot"
+    fi
+}
+
 print_admin_url_once() {
     [ "${FRESH:-0}" = 1 ] || return 0
     echo
@@ -268,17 +283,11 @@ if [ ! -e "$DB" ]; then
 fi
 own_db_files
 rc=0
+SNAPSHOT=0
 "$REPO/deploy/nnp-cli" migrate --db "$DB" --check || rc=$?
 case "$rc" in
     0) ;;
-    1)
-        if systemctl is-enabled --quiet nnp-backup.timer; then
-            echo "pending migrations: taking a backup snapshot first"
-            systemctl start nnp-backup.service || die "pre-migration backup failed; not migrating (journalctl -u nnp-backup.service)"
-        else
-            echo "WARN: pending migrations and backups are not enabled yet; no pre-migration snapshot"
-        fi
-        ;;
+    1) premigration_backup ;;
     *) die "nnp-cli migrate --check failed (rc=$rc)" ;;
 esac
 "$REPO/deploy/nnp-cli" migrate --db "$DB"
@@ -296,12 +305,21 @@ if [ "$ok" != 1 ]; then
     journalctl -u nnp -n 40 --no-pager
     echo "ERROR: nnp did not answer /healthz within 20s (log above)." >&2
     if [ -s "$LAST_GOOD" ]; then
-        echo "Rollback to the last commit that passed this check:" >&2
-        echo "  sudo git -C $REPO checkout $(cat "$LAST_GOOD") && sudo systemctl restart nnp" >&2
-        echo "If this run applied a migration, the old code may not match the new schema;" >&2
-        echo "restore the pre-migration snapshot instead (deploy/RUNBOOK.md, restore)." >&2
+        echo "Roll back to the last commit that passed this check (this script reruns" >&2
+        echo "pip, the units, migrate and this health check on it):" >&2
+        echo "  sudo git -C $REPO checkout $(cat "$LAST_GOOD") && sudo $REPO/deploy/install.sh" >&2
+        echo "That leaves $REPO on a detached HEAD. Once the fix is pushed, update with" >&2
+        echo "  sudo git -C $REPO checkout main && sudo git -C $REPO pull --ff-only && sudo $REPO/deploy/install.sh" >&2
     else
         echo "No earlier good deploy is recorded in $LAST_GOOD; fix forward." >&2
+    fi
+    if [ "$rc" = 1 ] && [ "$SNAPSHOT" = 1 ]; then
+        echo "This run applied a migration, so older code may not match the new schema;" >&2
+        echo "restore the pre-migration snapshot instead (restic snapshots --tag pre-migration;" >&2
+        echo "deploy/RUNBOOK.md, restore)." >&2
+    elif [ "$rc" = 1 ]; then
+        echo "This run applied a migration with NO pre-migration snapshot (backups not" >&2
+        echo "enabled), so older code may not match the new schema and there is nothing to restore." >&2
     fi
     exit 1
 fi
