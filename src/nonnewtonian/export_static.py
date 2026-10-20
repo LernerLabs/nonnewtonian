@@ -246,53 +246,61 @@ def export_site(db_path, photo_dir, out_dir, site_url: str) -> ExportReport:
              + [f"/textbooks/{t}" for t in tb_slugs])
     slides = [f"/scientists/{s}/slide.pptx" for s in slugs]
     client = app.test_client()
-    rendered: dict[str, str] = {}
-    files: dict[str, bytes] = {}
-    for url in pages + slides:
-        resp = client.get(url)
-        if resp.status_code != 200:
-            raise ExportError(f"GET {url} returned {resp.status_code}")
-        if url.endswith(".pptx"):
-            files[url.lstrip("/")] = deterministic_pptx(resp.data)
-        else:
-            rendered[url] = resp.get_data(as_text=True)
-
-    exported = {u: _page_file(u) for u in pages}
-    exported.update({u: u.lstrip("/") for u in slides})
-    exported["/static/style.css"] = "static/style.css"
-    photos: set[str] = set()
-    for text in rendered.values():
-        for _, value in _ATTR_RE.findall(text):
-            if value.startswith("/photos/"):
-                rel = value[len("/photos/"):]
-                if not _PHOTO_RE.match(rel):
-                    raise ExportError(f"unexpected photo path {value!r}")
-                src = (photo_dir / rel).resolve()
-                if photo_dir not in src.parents or not src.is_file():
-                    raise ExportError(f"referenced photo missing or outside the tree: {rel}")
-                photos.add(rel)
-                exported[value] = f"photos/{rel}"
-    for e in entries:
-        if e.primary_photo and e.primary_photo.file_path not in photos:
-            raise ExportError(f"CSV photo for {e.slug} is not on any public page")
-
-    for url, text in rendered.items():
-        files[_page_file(url)] = _rewrite_links(text, url, exported, site_url).encode("utf-8")
-    files["static/style.css"] = _STYLE_CSS.read_bytes()
-    files["down.html"] = _DOWN_HTML.read_bytes()
-    files["entries.csv"] = _entries_csv(entries)
-    files[".nojekyll"] = b""
-    for rel in photos:
-        files[f"photos/{rel}"] = (photo_dir / rel).read_bytes()
-
+    # Files go to disk as they are produced (nnp-mirror.service runs under
+    # MemoryMax): only the HTML, which link rewriting needs whole, stays in
+    # memory, and photos are copied, never read in.
     tmp = Path(str(out_dir) + ".next")
     shutil.rmtree(tmp, ignore_errors=True)
-    try:
-        for rel, data in sorted(files.items()):
-            dest = tmp / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
+    written: set[str] = set()
+
+    def write(rel: str, data: bytes | None = None, src: Path | None = None) -> None:
+        dest = tmp / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if src is not None:
+            shutil.copyfile(src, dest)
+        else:
             dest.write_bytes(data)
-        _leak_guard(tmp, set(files), set(slugs), patterns, site_url)
+        written.add(rel)
+
+    try:
+        rendered: dict[str, str] = {}
+        for url in pages + slides:
+            resp = client.get(url)
+            if resp.status_code != 200:
+                raise ExportError(f"GET {url} returned {resp.status_code}")
+            if url.endswith(".pptx"):
+                write(url.lstrip("/"), deterministic_pptx(resp.data))
+            else:
+                rendered[url] = resp.get_data(as_text=True)
+
+        exported = {u: _page_file(u) for u in pages}
+        exported.update({u: u.lstrip("/") for u in slides})
+        exported["/static/style.css"] = "static/style.css"
+        photos: set[str] = set()
+        for text in rendered.values():
+            for _, value in _ATTR_RE.findall(text):
+                if value.startswith("/photos/"):
+                    rel = value[len("/photos/"):]
+                    if not _PHOTO_RE.match(rel):
+                        raise ExportError(f"unexpected photo path {value!r}")
+                    src = (photo_dir / rel).resolve()
+                    if photo_dir not in src.parents or not src.is_file():
+                        raise ExportError(f"referenced photo missing or outside the tree: {rel}")
+                    photos.add(rel)
+                    exported[value] = f"photos/{rel}"
+        for e in entries:
+            if e.primary_photo and e.primary_photo.file_path not in photos:
+                raise ExportError(f"CSV photo for {e.slug} is not on any public page")
+
+        for url, text in rendered.items():
+            write(_page_file(url), _rewrite_links(text, url, exported, site_url).encode("utf-8"))
+        write("static/style.css", src=_STYLE_CSS)
+        write("down.html", src=_DOWN_HTML)
+        write("entries.csv", _entries_csv(entries))
+        write(".nojekyll", b"")
+        for rel in sorted(photos):
+            write(f"photos/{rel}", src=photo_dir / rel)
+        _leak_guard(tmp, written, set(slugs), patterns, site_url)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise

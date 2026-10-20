@@ -370,3 +370,35 @@ def test_leak_guard_names_the_collection_of_a_leaked_teacher_email(site, monkeyp
                         lambda *a, **kw: real(*a, **kw) + TEACHER_EMAIL)
     with pytest.raises(ex.ExportError, match=r"teacher email of collection \d+"):
         _export(site)
+
+
+def test_export_does_not_buffer_photos_in_memory(site, monkeypatch):
+    # M7 review #30: photos are copied file to file, never read whole.
+    real = Path.read_bytes
+    photo_root = site["photos"]
+
+    def guarded(self):
+        assert photo_root not in self.resolve().parents, f"photo read into memory: {self}"
+        return real(self)
+
+    monkeypatch.setattr(Path, "read_bytes", guarded)
+    report = _export(site)
+    assert report.photos == 2
+    rel = site["photo"]["public"]
+    assert (site["out"] / "photos" / rel).read_bytes() == real(photo_root / rel)
+
+
+def test_failure_after_slides_are_written_leaves_no_partial_tree(site, monkeypatch):
+    # Slides and pages now hit <out>.next before the export can still fail.
+    _export(site)
+    before = (site["out"] / "index.html").read_bytes()
+
+    def boom(entries):
+        assert any(Path(str(site["out"]) + ".next").rglob("slide.pptx"))
+        raise ex.ExportError("boom")
+
+    monkeypatch.setattr(ex, "_entries_csv", boom)
+    with pytest.raises(ex.ExportError, match="boom"):
+        _export(site)
+    assert not Path(str(site["out"]) + ".next").exists()
+    assert (site["out"] / "index.html").read_bytes() == before
