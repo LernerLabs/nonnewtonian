@@ -2,7 +2,7 @@
 # Install AND update NonNewtonian Physicists on the server. Idempotent: rerun
 # it after every `git pull`. Run by you, on the server, as root:
 #
-#   first time:  sudo git clone https://github.com/mglerner/nonnewtonian /opt/nnp
+#   first time:  sudo git clone https://github.com/LernerLabs/nonnewtonian /opt/nnp
 #                sudo /opt/nnp/deploy/install.sh
 #   update:      sudo git -C /opt/nnp pull --ff-only && sudo /opt/nnp/deploy/install.sh
 #   backups:     sudo /opt/nnp/deploy/install.sh --enable-backups
@@ -103,7 +103,7 @@ enable_backups() {
     # rebuilds on a new instance reuse it).
     bash -c "set -a; . $benv; set +a; restic cat config >/dev/null 2>&1 || restic init"
     systemctl start nnp-backup.service || { journalctl -u nnp-backup.service -n 40 --no-pager; die "first backup failed (log above)"; }
-    journalctl -u nnp-backup.service -n 15 --no-pager
+    journalctl -u nnp-backup.service -n 40 --no-pager
     bash -c "set -a; . $benv; set +a; exec $REPO/deploy/backup/nnp-restore-test.sh"
     systemctl enable --now nnp-backup.timer
     systemctl list-timers nnp-backup.timer --no-pager
@@ -270,6 +270,10 @@ done
 # As nnp, so a link planted under export/ only reaches what nnp can write.
 [ -e /var/lib/nnp/export/current/down.html ] \
     || runuser -u nnp -- install -m 640 "$REPO/deploy/caddy/down.html" /var/lib/nnp/export/current/down.html
+# Until the first static export lands, / would 404 during an outage (try_files
+# matches the directory, which has no index). The export replaces this copy.
+[ -e /var/lib/nnp/export/current/index.html ] \
+    || runuser -u nnp -- install -m 640 "$REPO/deploy/caddy/down.html" /var/lib/nnp/export/current/index.html
 if [ ! -e /etc/caddy/Caddyfile.dist ] && [ -e /etc/caddy/Caddyfile ]; then
     cp -p /etc/caddy/Caddyfile /etc/caddy/Caddyfile.dist
 fi

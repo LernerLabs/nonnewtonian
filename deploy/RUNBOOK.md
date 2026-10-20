@@ -301,7 +301,7 @@ ssh ubuntu@SERVER_IP
 You should see: an Ubuntu 24.04 banner and a shell prompt.
 
 ```
-sudo apt-get update && sudo apt-get -y full-upgrade
+sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get -y full-upgrade
 [ -e /var/run/reboot-required ] && echo REBOOT-NEEDED
 ```
 
@@ -309,7 +309,7 @@ You should see: apt finishing without errors. If `REBOOT-NEEDED` prints:
 `sudo reboot`, wait a minute, ssh back in.
 
 ```
-sudo git clone https://github.com/mglerner/nonnewtonian /opt/nnp
+sudo git clone https://github.com/LernerLabs/nonnewtonian /opt/nnp
 sudo /opt/nnp/deploy/install.sh
 ```
 
@@ -340,7 +340,7 @@ after each `== N/9` header; read them):
   /var/lib/nnp/app.db, then rerun this script.`, then the same two SAVE
   lines again as a reminder. The script exits 0 here; steps 8-9 run on the
   next invocation.
-- Any step 3, 6 or 7 (or `--mirror-key`) can stop with `ERROR: <path> is a
+- Step 3 or 7 (or `--mirror-key`) can stop with `ERROR: <path> is a
   symlink; the app user may be compromised: investigate before rerunning`
   if a symlink sits at one of the paths install.sh touches under
   `/var/lib/nnp`. On a fresh box that cannot happen; see the
@@ -405,12 +405,16 @@ proxy variable: remove it (from nnp.env, a drop-in under
 **LAPTOP**
 
 ```
-curl -s -o /dev/null -w '%{http_code}\n' https://nonnewtonian.org/
+curl -s -o /dev/null -w '%{http_code}\n' https://nonnewtonian.org/healthz
 ```
 
-You should see: `502` with no certificate error (Caddy has a certificate and
-serves `down.html` because the app is not started yet). A certificate error
-means ACME failed: `sudo journalctl -u caddy -n 50 --no-pager` on the server.
+You should see: `502` (Caddy has a certificate and serves `down.html`
+because the app is not started yet). `000` means the TLS handshake failed,
+i.e. ACME did not get a certificate: `sudo journalctl -u caddy -n 50
+--no-pager` on the server. (Until Session 3 installs the static export,
+`/` itself answers `404` during an outage: install.sh puts a copy of
+`down.html` at `index.html` so the front page shows the notice, but
+`/scientists` and friends have no archived copy yet.)
 
 Caddy's error log must not record URLs (manage and admin tokens are URL
 paths) or client IPs. While the app is still down, every request ends in a
@@ -622,7 +626,8 @@ link and kit to yourself.
 sudo git -C /opt/nnp pull --ff-only && sudo /opt/nnp/deploy/install.sh
 ```
 
-You should see: the same nine steps. Step 7 prints `up to date`, or
+You should see: the same nine steps. Step 7 prints `up to date` twice (the
+check, then the migrate), or
 `pending: <names>`, `pending migrations: taking a pre-migration backup
 snapshot first`, the backup's own output (in the terminal, NOT in
 `journalctl -u nnp-backup.service`), and then `applied: <names>`; step 8
