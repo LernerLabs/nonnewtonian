@@ -44,3 +44,13 @@ def test_textbook_toc_data_is_ascii():
                 if ord(ch) > 127:
                     offenders.append(f"{f.name}:{i}: literal U+{ord(ch):04X} {ch!r}")
     assert not offenders, "Non-ASCII in textbook TOC data:\n" + "\n".join(offenders)
+
+
+def test_cli_source_is_ascii():
+    # The CLI's messages are read in a terminal (often over SSH on the
+    # server), where a stray em-dash renders badly.
+    f = ROOT / "src/nonnewtonian/cli.py"
+    offenders = [f"cli.py:{i}: literal U+{ord(ch):04X} {ch!r}"
+                 for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1)
+                 for ch in line if ord(ch) > 127]
+    assert not offenders, "Non-ASCII in the CLI:\n" + "\n".join(offenders)
