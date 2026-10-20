@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Lost your management link? - {{ site_name }}{% endblock %}
+{% block content %}
+  <h1>Lost your management link?</h1>
+  {% if not smtp %}
+    <p>Email recovery is not turned on. Use the class kit you downloaded or the email you sent
+      yourself. Otherwise email <a href="mailto:mglerner@smith.edu">mglerner@smith.edu</a> FROM the
+      address you gave when creating the class, with the class name; I will verify and send a new
+      link.</p>
+  {% else %}
+    <p class="muted">Enter the email address you gave when you created the class. If it matches,
+      we'll email you a confirm link for each class created with that address.</p>
+    <form method="post" action="{{ url_for('recover.send_link') }}" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="form_ts" value="{{ form_ts }}">
+      <div class="hp" aria-hidden="true">
+        <label>Leave this blank<input name="website" tabindex="-1" autocomplete="off"></label>
+      </div>
+      <label>Your email
+        <input type="email" name="email" required>
+      </label>
+      <button type="submit">Email me a link</button>
+    </form>
+  {% endif %}
+{% endblock %}

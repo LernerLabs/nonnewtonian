@@ -26,6 +26,7 @@
       <a class="btn" href="{{ mailto }}">Email both links to myself</a>
       <a class="btn" href="{{ url_for('manage.kit', token=token) }}">Download a class kit (.txt)</a>
     </p>
+    <p class="small">Lost your management link later? <a href="{{ url_for('recover.form') }}">Get a new one</a>.</p>
   </div>
 
   <p class="actions"><a class="btn primary" href="{{ url_for('manage.dashboard', token=token) }}">Go to my dashboard -&gt;</a></p>
