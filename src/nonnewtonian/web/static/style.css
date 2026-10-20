@@ -156,3 +156,6 @@ body.embed header.site, body.embed footer.site { display: none; }
 details.embed-help { margin: .6rem 0; border: 1px solid var(--rule); border-radius: 8px; padding: .4rem .8rem; }
 details.embed-help summary { cursor: pointer; font-weight: 600; color: var(--accent); }
 details.embed-help ol { margin: .5rem 0 .3rem 1.2rem; }
+
+/* --- M7: static-export (mirror) banner --- */
+.mirror-note { border: 1px solid var(--accent); border-radius: 8px; padding: .5rem .8rem; background: var(--card); }

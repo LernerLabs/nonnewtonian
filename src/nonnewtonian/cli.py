@@ -123,6 +123,18 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export_static(args: argparse.Namespace) -> int:
+    from .export_static import ExportError, export_site
+    try:
+        r = export_site(args.db, args.photos, args.out, args.site_url)
+    except ExportError as exc:
+        print(f"export-static: {exc}", file=sys.stderr)
+        return 1
+    print(f"exported {r.pages} pages, {r.slides} slides, {r.photos} photos, "
+          f"{r.entries} entries to {args.out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nonnewtonian")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -148,7 +160,13 @@ def build_parser() -> argparse.ArgumentParser:
     mig.add_argument("--check", action="store_true",
                      help="only list pending migrations; exit 1 if any")
     mig.set_defaults(func=cmd_migrate)
-    # "export-static" is reserved for the static-export subcommand (M7 WP10).
+
+    exp = sub.add_parser("export-static", help="render the public communal site to a directory")
+    exp.add_argument("--db", required=True, help="SQLite database path")
+    exp.add_argument("--photos", required=True, help="content-hash photo tree")
+    exp.add_argument("--out", required=True, help="output dir (replaced whole, via <out>.next)")
+    exp.add_argument("--site-url", required=True, help="live site URL, e.g. https://nonnewtonian.org")
+    exp.set_defaults(func=cmd_export_static)
     return parser
 
 

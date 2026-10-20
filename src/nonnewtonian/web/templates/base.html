@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ site_name }}{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% if config.get('STATIC_EXPORT') %}<link rel="canonical" href="{{ config.SITE_URL }}{{ request.path }}">{% endif %}
 </head>
 <body>
 <header class="site">
@@ -21,6 +22,7 @@
 </header>
 <main>
   <div class="wrap">
+    {% if config.get('STATIC_EXPORT') %}<p class="mirror-note">This is a read-only copy of nonnewtonian.org, refreshed nightly. To submit an entry or run a class, use <a href="{{ config.SITE_URL }}/">the live site</a>.</p>{% endif %}
     {% block content %}{% endblock %}
   </div>
 </main>
