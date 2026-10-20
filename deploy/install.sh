@@ -42,7 +42,8 @@ print_admin_url_once() {
 enable_backups() {
     local benv=/etc/nnp-backup.env
     step "enable backups"
-    [ -e "$benv" ] || die "$benv missing: copy deploy/backup/nnp-backup.env.example there and edit it (deploy/backup/README.md step 4)"
+    [ -e "$benv" ] || die "$benv missing: copy deploy/backup/nnp-backup.env.example there and edit it (deploy/backup/README.md step 5)"
+    [ -e "$DB" ] || die "no database at $DB yet; seed and upload it first (RUNBOOK 1.5-1.6)"
     ! grep -q YOUR_BUCKET_NAME "$benv" || die "$benv still contains YOUR_BUCKET_NAME; set the real bucket"
     grep -q '^NNP_BACKUP_PING_URL=..*' "$benv" || die "$benv lacks NNP_BACKUP_PING_URL (healthchecks.io); backups refuse to run without it"
     ! grep -q YOUR-UUID "$benv" || die "$benv still contains the YOUR-UUID placeholder in NNP_BACKUP_PING_URL"
