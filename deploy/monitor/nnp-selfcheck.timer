@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily NonNewtonian Physicists self-check
+
+[Timer]
+# After the nightly backup and mirror runs, so a failed one shows up here.
+OnCalendar=*-*-* 06:15:00
+# Run on next boot if the machine was off at 06:15.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

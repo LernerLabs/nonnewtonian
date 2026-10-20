@@ -1,0 +1,25 @@
+// NonNewtonian Physicists: unattended security upgrades. install.sh copies
+// this to /etc/apt/apt.conf.d/52nnp-unattended-upgrades. It sorts after
+// Ubuntu's 20auto-upgrades and 50unattended-upgrades, so it adds to their
+// settings (list entries such as Origins-Pattern append).
+//
+// NOT verified where this was written (no Ubuntu box). On the server, check:
+//   apt-cache policy caddy          (the cloudsmith line)
+//   sudo unattended-upgrade --dry-run --debug 2>&1 | grep -i -e caddy -e allowed
+// If caddy is not listed as allowed, replace the pattern below with the
+// "o=..." value apt-cache policy shows for dl.cloudsmith.io.
+
+// Make sure the daily apt timers actually run unattended-upgrade.
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+
+// Also upgrade Caddy from its official repo (install.sh step 2 adds it).
+Unattended-Upgrade::Origins-Pattern {
+        "site=dl.cloudsmith.io";
+};
+
+// Reboot when an upgrade needs it (kernel, libc), after the 03:30 backup and
+// the 04:30 mirror run, before the 06:15 self-check. Every unit and timer is
+// enabled, so all come back (drill D1c checks this).
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "05:30";

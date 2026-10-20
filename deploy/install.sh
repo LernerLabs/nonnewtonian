@@ -6,6 +6,10 @@
 #                sudo /opt/nnp/deploy/install.sh
 #   update:      sudo git -C /opt/nnp pull --ff-only && sudo /opt/nnp/deploy/install.sh
 #   backups:     sudo /opt/nnp/deploy/install.sh --enable-backups
+#   mirror:      sudo /opt/nnp/deploy/install.sh --mirror-key
+#                (add the printed key to GitHub, write /etc/nnp/mirror.env)
+#                sudo /opt/nnp/deploy/install.sh --enable-mirror
+#   self-check:  sudo /opt/nnp/deploy/install.sh --enable-selfcheck
 #
 # Every step prints "== step" and a "You should see:" line; read them.
 # Nothing in this repo connects to the server for you.
@@ -60,11 +64,65 @@ enable_backups() {
     see "'snapshot ... saved' and 'nnp backup complete' in the log, 'restore OK: integrity ok, N entries', the timer listed, and the healthchecks.io check green"
 }
 
+mirror_key() {
+    local d=/var/lib/nnp/.ssh
+    step "mirror deploy key"
+    id nnp >/dev/null 2>&1 || die "user nnp missing; run sudo $REPO/deploy/install.sh first"
+    install -d -o nnp -g nnp -m 700 "$d"
+    [ -e "$d/mirror_ed25519" ] \
+        || runuser -u nnp -- ssh-keygen -q -t ed25519 -N '' -C nnp-mirror@nonnewtonian.org -f "$d/mirror_ed25519"
+    # Recorded once (trust on first use); delete known_hosts to re-record.
+    if [ ! -s "$d/known_hosts" ]; then
+        ssh-keyscan -t ed25519 github.com > "$d/known_hosts.new" 2>/dev/null
+        [ -s "$d/known_hosts.new" ] || die "ssh-keyscan github.com returned nothing (network?)"
+        mv "$d/known_hosts.new" "$d/known_hosts"
+    fi
+    chown nnp:nnp "$d/known_hosts"
+    chmod 644 "$d/known_hosts"
+    echo "Deploy key (GitHub: mglerner/nonnewtonian-mirror -> Settings -> Deploy keys -> Add, WITH write access):"
+    cat "$d/mirror_ed25519.pub"
+    echo "github.com host key recorded in $d/known_hosts:"
+    ssh-keygen -lf "$d/known_hosts"
+    echo "Compare that SHA256 with https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints"
+    see "an ssh-ed25519 public key line, and a github.com ED25519 SHA256 fingerprint that matches GitHub's page exactly (if not, STOP: delete $d/known_hosts)"
+}
+
+enable_mirror() {
+    local menv=/etc/nnp/mirror.env
+    step "enable mirror"
+    [ -e "$menv" ] || die "$menv missing: copy deploy/mirror/mirror.env.example there and edit it (RUNBOOK, mirror)"
+    [ -e /var/lib/nnp/.ssh/mirror_ed25519 ] || die "no deploy key yet; run sudo $0 --mirror-key first"
+    [ -e /etc/systemd/system/nnp-mirror.service ] || die "mirror units not installed; run sudo $REPO/deploy/install.sh first"
+    chown root:root "$menv"; chmod 600 "$menv"
+    systemctl start nnp-mirror.service || { journalctl -u nnp-mirror.service -n 40 --no-pager; die "first mirror run failed (log above)"; }
+    journalctl -u nnp-mirror.service -n 15 --no-pager
+    systemctl enable --now nnp-mirror.timer
+    systemctl list-timers nnp-mirror.timer --no-pager
+    see "'pushed <sha> (tree <sha>)' (or 'mirror unchanged') in the log and the timer listed; then turn on GitHub Pages for branch gh-pages"
+}
+
+enable_selfcheck() {
+    local menv=/etc/nnp/monitor.env
+    step "enable daily self-check"
+    [ -e "$menv" ] || die "$menv missing: copy deploy/monitor/monitor.env.example there and set NNP_SELFCHECK_PING_URL"
+    grep -q '^NNP_SELFCHECK_PING_URL=..*' "$menv" || die "$menv lacks NNP_SELFCHECK_PING_URL (healthchecks.io)"
+    ! grep -q YOUR-UUID "$menv" || die "$menv still contains the YOUR-UUID placeholder in NNP_SELFCHECK_PING_URL"
+    [ -e /etc/systemd/system/nnp-selfcheck.service ] || die "self-check units not installed; run sudo $REPO/deploy/install.sh first"
+    chown root:root "$menv"; chmod 600 "$menv"
+    systemctl start nnp-selfcheck.service || { journalctl -u nnp-selfcheck.service -n 20 --no-pager; die "self-check found problems (log above); fix them and rerun"; }
+    journalctl -u nnp-selfcheck.service -n 5 --no-pager
+    systemctl enable --now nnp-selfcheck.timer
+    systemctl list-timers nnp-selfcheck.timer --no-pager
+    see "'selfcheck ok' in the log, the timer listed, and the healthchecks.io check green"
+}
+
 case "${1:-}" in
     "") ;;
     --enable-backups) enable_backups; exit 0 ;;
-    --mirror-key|--enable-mirror|--enable-selfcheck) die "$1 is not implemented yet (a later M7 package adds it)" ;;
-    *) die "usage: $0 [--enable-backups]" ;;
+    --mirror-key) mirror_key; exit 0 ;;
+    --enable-mirror) enable_mirror; exit 0 ;;
+    --enable-selfcheck) enable_selfcheck; exit 0 ;;
+    *) die "usage: $0 [--enable-backups | --mirror-key | --enable-mirror | --enable-selfcheck]" ;;
 esac
 
 FRESH=0
@@ -85,9 +143,9 @@ swapon --show
 sysctl vm.swappiness
 see "a swap line (e.g. /swapfile file 1024M) and vm.swappiness = 10"
 
-step "2/9 packages"
+step "2/9 packages, unattended upgrades, journald"
 apt-get update -q
-apt-get install -y -q python3-venv git sqlite3 restic curl
+apt-get install -y -q python3-venv git sqlite3 restic curl unattended-upgrades
 if ! apt-cache policy caddy | grep -q dl.cloudsmith.io; then
     # Official Caddy apt repo, from https://caddyserver.com/docs/install
     # ("Debian, Ubuntu, Raspbian" -> stable). Written from memory where no
@@ -102,7 +160,15 @@ if ! apt-cache policy caddy | grep -q dl.cloudsmith.io; then
 fi
 apt-get install -y -q caddy
 caddy version
-see "no apt errors and a Caddy version line (v2.x)"
+install -m 644 "$REPO/deploy/system/52nnp-unattended-upgrades" /etc/apt/apt.conf.d/52nnp-unattended-upgrades
+install -d -m 755 /etc/systemd/journald.conf.d
+install -m 644 "$REPO/deploy/system/journald-nnp.conf" /etc/systemd/journald.conf.d/nnp.conf
+systemctl restart systemd-journald
+apt-config dump | grep -e '^Unattended-Upgrade::Automatic-Reboot' -e '^APT::Periodic::Unattended-Upgrade' \
+    || echo "WARN: apt-config shows no unattended-upgrade settings"
+systemd-analyze cat-config systemd/journald.conf | grep -e '^SystemMaxUse' -e '^MaxRetentionSec' \
+    || echo "WARN: journald shows no nnp limits"
+see "no apt errors, a Caddy version line (v2.x), Automatic-Reboot \"true\" / Automatic-Reboot-Time \"05:30\" / Unattended-Upgrade \"1\", and SystemMaxUse=200M / MaxRetentionSec=1month"
 
 step "3/9 user and directories"
 id nnp >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/nnp --shell /usr/sbin/nologin nnp

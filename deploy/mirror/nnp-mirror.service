@@ -1,0 +1,26 @@
+# Nightly static export + push to the GitHub Pages mirror. install.sh copies
+# this to /etc/systemd/system/; `install.sh --enable-mirror` starts it once and
+# enables nnp-mirror.timer. Check on the server with:
+#   sudo systemd-analyze verify /etc/systemd/system/nnp-mirror.service
+# (not run where this file was written).
+#
+# The export also refreshes /var/lib/nnp/export/current, which Caddy serves
+# while the app is down (deploy/caddy/Caddyfile handle_errors).
+[Unit]
+Description=NonNewtonian Physicists static export and GitHub Pages mirror push
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nnp
+UMask=0027
+EnvironmentFile=/etc/nnp/nnp.env
+EnvironmentFile=/etc/nnp/mirror.env
+WorkingDirectory=/var/lib/nnp
+ExecStart=/opt/nnp/.venv/bin/nonnewtonian export-static --db ${NNP_DB} --photos ${NNP_PHOTOS} --out /var/lib/nnp/export/current --site-url ${NNP_SITE_URL}
+ExecStart=/opt/nnp/deploy/mirror/nnp-mirror.sh /var/lib/nnp/export/current
+Nice=10
+MemoryMax=250M
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nnp

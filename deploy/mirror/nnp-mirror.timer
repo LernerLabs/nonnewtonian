@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly NonNewtonian Physicists static mirror
+
+[Timer]
+# After the 03:30 backup.
+OnCalendar=*-*-* 04:30:00
+# Run on next boot if the machine was off at 04:30.
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

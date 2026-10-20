@@ -1,0 +1,15 @@
+# Daily self-check; pings healthchecks.io (see nnp-selfcheck.sh). install.sh
+# copies this to /etc/systemd/system/; `install.sh --enable-selfcheck` runs it
+# once and enables nnp-selfcheck.timer. Runs as root (it reads systemctl state
+# and the TLS certificate). Check on the server with:
+#   sudo systemd-analyze verify /etc/systemd/system/nnp-selfcheck.service
+# (not run where this file was written).
+[Unit]
+Description=NonNewtonian Physicists daily self-check (dead-man ping)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/nnp/monitor.env
+ExecStart=/opt/nnp/deploy/monitor/nnp-selfcheck.sh
