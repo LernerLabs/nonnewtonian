@@ -320,3 +320,53 @@ def test_install_restore_hint_only_when_a_snapshot_was_taken():
     hint = step8.index("restore the pre-migration snapshot")
     guard = step8.rindex("if ", 0, hint)
     assert '[ "$SNAPSHOT" = 1 ]' in step8[guard:hint]
+
+
+# M7 review #19: nnp.env is read by systemd (literal values) and was also
+# sourced as shell, where `KEY=abcd efgh` runs `efgh` and `$x` expands.
+SYSTEMD_STYLE_ENV = """# comment
+NNP_SMTP_PASSWORD=abcd efgh $x $$y
+#NNP_ADMIN_EMAIL=commented@example.org
+NNP_ADMIN_EMAIL='me@example.org'
+NNP_MAIL_FROM="Physics <p@example.org>"
+NNP_ADMIN_EMAIL=last@example.org
+"""
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+@pytest.mark.parametrize("key, want", [
+    ("NNP_SMTP_PASSWORD", "abcd efgh $x $$y"),
+    ("NNP_ADMIN_EMAIL", "last@example.org"),
+    ("NNP_MAIL_FROM", "Physics <p@example.org>"),
+    ("NNP_SMTP_HOST", ""),
+])
+def test_envget_reads_values_literally_like_systemd(tmp_path, key, want):
+    env = tmp_path / "nnp.env"
+    env.write_text(SYSTEMD_STYLE_ENV)
+    result, _ = _run_install_functions(tmp_path, ["envget"], f'envget "{env}" {key}\n', stubs={})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == want
+    assert not result.stderr
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_nnp_cli_loads_env_values_literally_like_systemd(tmp_path):
+    env = tmp_path / "nnp.env"
+    env.write_text(SYSTEMD_STYLE_ENV.replace("NNP_ADMIN_EMAIL=last@example.org\n", ""))
+    cli = tmp_path / "nnp-cli"
+    cli.write_text((DEPLOY / "nnp-cli").read_text()
+                   .replace("/etc/nnp/nnp.env", str(env))
+                   .replace("cd /var/lib/nnp", f"cd {tmp_path}"))
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    for name, text in {
+        "id": "echo 0\n",
+        "runuser": "shift 3\nprintf '%s|' \"$*\" \"$NNP_SMTP_PASSWORD\" \"$NNP_ADMIN_EMAIL\" \"$NNP_MAIL_FROM\"\n",
+    }.items():
+        (bindir / name).write_text("#!/bin/sh\n" + text)
+        (bindir / name).chmod(0o755)
+    result = subprocess.run(["sh", str(cli), "migrate", "--check"], capture_output=True, text=True,
+                            env={"PATH": f"{bindir}:/usr/bin:/bin"})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ("/opt/nnp/.venv/bin/nonnewtonian migrate --check|abcd efgh $x $$y|"
+                             "me@example.org|Physics <p@example.org>|")

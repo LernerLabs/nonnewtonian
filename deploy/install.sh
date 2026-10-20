@@ -32,8 +32,23 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 # nnp owns /var/lib/nnp, so a compromised app could plant a link there for
 # root to follow; refuse instead.
 no_symlink() { [ ! -L "$1" ] || die "$1 is a symlink; the app user may be compromised: investigate before rerunning"; }
-# Read one variable out of a root-only env file without exporting the rest.
-envget() { ( set -a; . "$1"; eval "printf '%s' \"\${$2:-}\"" ); }
+# Read one variable out of a root-only env file without running it: systemd
+# reads nnp.env too, and it takes `KEY=a b $c` literally where a shell would
+# not. Matches systemd for plain KEY=value lines and for one pair of quotes
+# around the whole value; NOT for backslash escapes, line continuations or
+# leading whitespace (nnp.env.example says to avoid those). Same parser as
+# deploy/nnp-cli. The last assignment wins, as in systemd.
+envget() {
+    local line val=
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in "$2="*) val=${line#*=} ;; esac
+    done < "$1"
+    case "$val" in
+        \'*\') val=${val#\'}; val=${val%\'} ;;
+        \"*\") val=${val#\"}; val=${val%\"} ;;
+    esac
+    printf '%s' "$val"
+}
 
 [ "$(id -u)" -eq 0 ] || die "run as root: sudo $0 $*"
 [ "$(readlink -f "$0")" = "$REPO/deploy/install.sh" ] \
