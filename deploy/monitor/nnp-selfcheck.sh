@@ -6,7 +6,7 @@
 # NNP_SELFCHECK_PING_URL; any failure -> POST the message to .../fail. If the
 # box is down nothing pings at all, and healthchecks.io alerts on the silence.
 #
-# Tested only with stub systemctl/curl/openssl/df/swapon
+# Tested only with stub systemctl/curl/openssl/df/swapon/find
 # (tests/test_selfcheck.py); the real run on the server is the check.
 set -euo pipefail
 
@@ -37,6 +37,16 @@ pcent=$(df --output=pcent "$DATA" | tail -n 1 | tr -dc 0-9) || pcent=""
 if [ -z "$pcent" ] || [ "$pcent" -ge 90 ]; then bad "disk for $DATA is ${pcent:-?}% full"; fi
 
 [ -n "$(swapon --noheadings)" ] || bad "no swap active"
+
+# Caddy serves photos/ and export/ (both writable by nnp), and its file_server
+# follows symlinks, so an app compromise could plant a link to Caddy's TLS key
+# and fetch it over HTTPS. The app never writes symlinks there. KNOWN
+# LIMITATION: this is daily DETECTION, not prevention -- a planted link can be
+# served for up to a day before this alerts.
+links=$(find "$DATA/photos" "$DATA/export" -type l 2>&1) || links="(find failed) $links"
+if [ -n "$links" ]; then
+    bad "symlinks under $DATA/photos or $DATA/export (first 20):"$'\n'"$(printf '%s\n' "$links" | head -n 20)"
+fi
 
 failed=$(systemctl --failed --no-legend --plain) || failed="(systemctl --failed did not run)"
 [ -z "$failed" ] || bad "failed units: $failed"

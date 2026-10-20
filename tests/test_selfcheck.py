@@ -1,5 +1,5 @@
 """Behavior of deploy/monitor/nnp-selfcheck.sh, run against stub systemctl,
-curl, openssl, df and swapon executables. Nothing real is checked or
+curl, openssl, df, swapon and find executables. Nothing real is checked or
 pinged; the real tools only run on the server."""
 import pathlib
 import shutil
@@ -43,6 +43,12 @@ exit 0
     "df": """#!/bin/sh
 echo "Use%"
 echo " ${DISK_PCENT:-42}%"
+""",
+    # FIND_OUT: what `find ... -type l` prints; FIND_RC: its exit status.
+    "find": """#!/bin/sh
+echo "find $*" >> "$STUB_LOG"
+[ -n "${FIND_OUT:-}" ] && printf '%s\\n' "$FIND_OUT"
+exit "${FIND_RC:-0}"
 """,
     "swapon": """#!/bin/sh
 [ "${NO_SWAP:-}" = 1 ] || echo "/swapfile file 1024M 0B -2"
@@ -99,6 +105,9 @@ def test_healthz_goes_through_local_caddy_with_sni(tmp_path):
     ({"FAILED_UNITS": "nnp-backup.service loaded failed failed backup"},
      "failed units: nnp-backup.service"),
     ({"MIRROR_ENABLED": "1", "INACTIVE": "nnp-mirror.timer"}, "nnp-mirror.timer is not active"),
+    ({"FIND_OUT": "/var/lib/nnp/photos/aa/" + "b" * 64 + ".jpg"},
+     "/var/lib/nnp/photos/aa/" + "b" * 64 + ".jpg"),
+    ({"FIND_RC": "1"}, "(find failed)"),
 ])
 def test_each_failure_posts_to_fail_with_the_reason(tmp_path, env, needle):
     result, log = _run(tmp_path, **env)
@@ -134,3 +143,9 @@ def test_ping_url_never_on_curl_argv(tmp_path, env):
     argv, _, url = pings[0].rstrip().rpartition(" -- ")
     assert "-K -" in argv and "hc-ping" not in argv
     assert url.startswith(PING)
+
+
+def test_symlink_scan_covers_photos_and_export(tmp_path):
+    # Caddy follows symlinks in both trees (review #22).
+    _, log = _run(tmp_path)
+    assert "find /var/lib/nnp/photos /var/lib/nnp/export -type l\n" in log
