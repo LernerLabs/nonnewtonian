@@ -6,7 +6,7 @@
 # NNP_SELFCHECK_PING_URL; any failure -> POST the message to .../fail. If the
 # box is down nothing pings at all, and healthchecks.io alerts on the silence.
 #
-# Tested only with stub systemctl/curl/openssl/df/swapon
+# Tested only with stub systemctl/curl/openssl/df/swapon/find
 # (tests/test_selfcheck.py); the real run on the server is the check.
 set -euo pipefail
 
@@ -38,14 +38,30 @@ if [ -z "$pcent" ] || [ "$pcent" -ge 90 ]; then bad "disk for $DATA is ${pcent:-
 
 [ -n "$(swapon --noheadings)" ] || bad "no swap active"
 
+# Caddy serves photos/ and export/ (both writable by nnp), and its file_server
+# follows symlinks, so an app compromise could plant a link to Caddy's TLS key
+# and fetch it over HTTPS. The app never writes symlinks there. KNOWN
+# LIMITATION: this is daily DETECTION, not prevention -- a planted link can be
+# served for up to a day before this alerts.
+links=$(find "$DATA/photos" "$DATA/export" -type l 2>&1) || links="(find failed) $links"
+if [ -n "$links" ]; then
+    bad "symlinks under $DATA/photos or $DATA/export (first 20):"$'\n'"$(printf '%s\n' "$links" | head -n 20)"
+fi
+
 failed=$(systemctl --failed --no-legend --plain) || failed="(systemctl --failed did not run)"
 [ -z "$failed" ] || bad "failed units: $failed"
 
+# The ping URL goes to curl as a config on stdin (-K -), never on argv: argv is
+# world-readable in /proc, and anyone holding the URL can fake success pings.
+# (Config quoting: the URL must not contain a double quote or backslash;
+# healthchecks.io URLs never do.)
+# The /fail body is not secret and stays on argv.
 if [ -z "$msg" ]; then
-    curl -fsS -m 10 --retry 3 -o /dev/null "$NNP_SELFCHECK_PING_URL" || true
+    printf 'url = "%s"\n' "$NNP_SELFCHECK_PING_URL" | curl -fsS -m 10 --retry 3 -o /dev/null -K - || true
     echo "selfcheck ok"
 else
-    curl -fsS -m 10 --retry 3 -o /dev/null --data-raw "$msg" "$NNP_SELFCHECK_PING_URL/fail" || true
+    printf 'url = "%s/fail"\n' "$NNP_SELFCHECK_PING_URL" \
+        | curl -fsS -m 10 --retry 3 -o /dev/null --data-raw "$msg" -K - || true
     printf 'selfcheck FAILED:\n%s' "$msg" >&2
     exit 1
 fi

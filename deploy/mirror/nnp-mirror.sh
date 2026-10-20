@@ -26,7 +26,14 @@ umask 022
 src=${1:?usage: nnp-mirror.sh EXPORT_DIR [--allow-shrink]}
 : "${NNP_MIRROR_REMOTE:?set NNP_MIRROR_REMOTE (the mirror repo URL)}"
 
-ping() { [ -n "${NNP_MIRROR_PING_URL:-}" ] || return 0; curl -fsS -m 10 --retry 3 -o /dev/null "${NNP_MIRROR_PING_URL}$1" || true; }
+# The URL goes to curl as a config on stdin (-K -), never on argv: argv is
+# world-readable in /proc, and anyone holding the URL can fake success pings.
+# (Config quoting: the URL must not contain a double quote or backslash;
+# healthchecks.io URLs never do.)
+ping() {
+    [ -n "${NNP_MIRROR_PING_URL:-}" ] || return 0
+    printf 'url = "%s%s"\n' "$NNP_MIRROR_PING_URL" "$1" | curl -fsS -m 10 --retry 3 -o /dev/null -K - || true
+}
 trap 'rc=$?; [ "$rc" -eq 0 ] || ping /fail' EXIT
 ping /start
 

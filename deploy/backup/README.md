@@ -47,12 +47,16 @@ could plant a symlink for root to overwrite.
    your password manager and in the root-only env file, nowhere else.
 
 4. **Pick the encryption passphrase and save it in your password manager first**
-   (it is the only key to the backups). Then put it on the server root-only:
+   (it is the only key to the backups). Then put it on the server root-only.
+   The directory and file are created 0700/0600 from the start (never briefly
+   world-readable), and the passphrase is pasted at a hidden prompt, so it
+   never appears on a command line or in your shell history:
    ```
-   sudo mkdir -p /etc/nnp-backup
-   printf '%s' 'YOUR-LONG-RANDOM-PASSPHRASE' | sudo tee /etc/nnp-backup/restic-pass >/dev/null
-   sudo chmod 600 /etc/nnp-backup/restic-pass
+   sudo install -d -m 700 /etc/nnp-backup
+   sudo bash -c 'umask 077; read -rsp "passphrase: " p; echo; printf "%s" "$p" > /etc/nnp-backup/restic-pass'
+   sudo ls -l /etc/nnp-backup/restic-pass
    ```
+   You should see: `-rw-------` and `root root` on the file.
 
 5. **Write the config** (chmod BEFORE you type secrets into it):
    ```
@@ -117,6 +121,43 @@ curl -fsS http://127.0.0.1:8000/healthz
 
 You should see: `ok`. (Use the path `find` printed if it differs from the one
 in the `cp` line.)
+
+## Retention across a rebuild
+
+Every snapshot is recorded with the fixed host name `nnp` (`restic backup
+--host nnp`), and the nightly `restic forget` groups snapshots by tag only
+(`--group-by tags`). A rebuilt server with a different hostname, or a changed
+`NNP_BACKUP_STAGING`, therefore keeps pruning the old snapshots, and nothing
+outlives the six-month window. Snapshots taken before this change carry the
+real hostname but the same `nnp` tag, so they are pruned with the rest. To
+check, list them:
+
+```
+sudo bash -c 'set -a; . /etc/nnp-backup.env; set +a; restic snapshots'
+```
+
+You should see: the oldest snapshot no more than about six months old, apart
+from any tagged `pre-migration` (next section).
+
+## Pre-migration snapshots (prune by hand)
+
+When a deploy has migrations to run, `install.sh` first takes a backup tagged
+`nnp,pre-migration` (via `NNP_BACKUP_TAG=pre-migration`), the snapshot its
+rollback hint tells you to restore. The nightly `forget` keeps every snapshot
+tagged `pre-migration` (`--keep-tag pre-migration`), so the nightly run cannot
+prune it before you roll back. **That means nothing prunes them**: each one
+outlives the six-month window the privacy page promises until you remove it.
+Once the deploy has proved good (and at least every few months), list them and
+forget the ones you no longer need:
+
+```
+sudo bash -c 'set -a; . /etc/nnp-backup.env; set +a; restic snapshots --tag pre-migration'
+sudo bash -c 'set -a; . /etc/nnp-backup.env; set +a; restic forget --prune SNAPSHOT_ID'
+```
+
+You should see: the first command lists each pre-migration snapshot with its
+ID and date; the second prints `removed snapshot ...` and then the prune
+summary. Never forget the newest one while a rollback is still possible.
 
 Rebuilding on a new instance, the laptop restore drill, and the rest of the
 operations are in `deploy/RUNBOOK.md`.

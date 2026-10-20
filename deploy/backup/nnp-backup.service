@@ -6,6 +6,11 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/nnp-backup.env
+# A root system service gets no $HOME, so without this restic runs uncached
+# and re-downloads index/tree data from B2 every night. (Interactive runs under
+# sudo use /root/.cache/restic instead; both caches are disposable.)
+CacheDirectory=nnp-backup
+Environment=RESTIC_CACHE_DIR=/var/cache/nnp-backup
 # Adjust this path to wherever you put the repo/scripts on the server.
 ExecStart=/opt/nnp/deploy/backup/nnp-backup.sh
 # Be a good neighbour to the web app on a small box.

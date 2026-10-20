@@ -1,4 +1,4 @@
-"""Behavior of deploy/backup/nnp-backup.sh, run against stub restic, sqlite3
+"""Behavior of deploy/backup/nnp-backup.sh (and nnp-restore-test.sh), run against stub restic, sqlite3
 and curl executables that record their argv. Nothing real is backed up or
 pinged; the real tools only run on the server."""
 import pathlib
@@ -27,8 +27,11 @@ case "$2" in
   PRAGMA*) echo ok ;;
 esac
 """,
+    # Logs "curl ARGV -- URL", URL read from the `-K -` config on stdin.
     "curl": """#!/bin/sh
-echo "curl $*" >> "$STUB_LOG"
+url=""
+for a in "$@"; do [ "$a" = "-K" ] && url=$(sed -n 's/^url = "\\(.*\\)"$/\\1/p'); done
+echo "curl $* -- $url" >> "$STUB_LOG"
 """,
 }
 
@@ -102,3 +105,92 @@ def test_missing_db_pings_fail_without_running_sqlite(tmp_path):
     assert result.returncode != 0
     assert _pings(calls) == [PING + "/start", PING + "/fail"]
     assert not any(c.startswith("sqlite3 ") for c in calls)
+
+
+def test_retention_does_not_depend_on_hostname_or_paths(tmp_path):
+    # restic's default forget grouping is host+paths: a rebuilt server would
+    # leave the old host's snapshots unpruned forever (review #9).
+    _, calls = _run(tmp_path)
+    backup = next(c for c in calls if c.startswith("restic backup "))
+    forget = next(c for c in calls if c.startswith("restic forget "))
+    assert "--host nnp" in backup
+    assert "--group-by tags" in forget and "--tag nnp" in forget
+
+
+def test_extra_tag_is_added_and_pre_migration_is_kept(tmp_path):
+    # A same-day nightly forget must not prune install.sh's pre-migration
+    # snapshot (review #24).
+    _, calls = _run(tmp_path, NNP_BACKUP_TAG="pre-migration")
+    backup = next(c for c in calls if c.startswith("restic backup "))
+    forget = next(c for c in calls if c.startswith("restic forget "))
+    assert "--tag nnp --tag pre-migration" in backup
+    assert "--keep-tag pre-migration" in forget
+
+
+def test_no_extra_tag_by_default(tmp_path):
+    _, calls = _run(tmp_path)
+    backup = next(c for c in calls if c.startswith("restic backup "))
+    assert backup.count("--tag") == 1
+
+
+def test_backup_unit_gives_restic_a_cache_dir():
+    # No User= means no $HOME, so restic would run without a cache (review #25).
+    unit = (ROOT / "deploy/backup/nnp-backup.service").read_text().splitlines()
+    assert "CacheDirectory=nnp-backup" in unit
+    assert "Environment=RESTIC_CACHE_DIR=/var/cache/nnp-backup" in unit
+
+
+def test_readme_passphrase_setup_is_never_world_readable_or_on_argv():
+    # tee under umask 022 made the key 0644 until the chmod, and the
+    # passphrase sat in shell history (review #26).
+    readme = (ROOT / "deploy/backup/README.md").read_text()
+    assert "sudo install -d -m 700 /etc/nnp-backup" in readme
+    assert "umask 077; read -rsp" in readme
+    assert "YOUR-LONG-RANDOM-PASSPHRASE" not in readme
+    assert "mkdir -p /etc/nnp-backup" not in readme
+
+
+def test_ping_url_never_on_curl_argv(tmp_path):
+    # argv is world-readable in /proc; the URL is a secret (review #27).
+    _, calls = _run(tmp_path, RESTIC_BACKUP_RC="1")
+    curls = [c for c in calls if c.startswith("curl ")]
+    assert curls
+    for c in curls:
+        argv, _, url = c.rpartition(" -- ")
+        assert "-K -" in argv and "hc-ping" not in argv
+        assert url.startswith(PING)
+
+
+RESTORE_SH = ROOT / "deploy/backup/nnp-restore-test.sh"
+
+
+@pytest.mark.skipif(shutil.which("sqlite3") is None, reason="needs the sqlite3 CLI")
+@pytest.mark.parametrize("rows,ok", [(0, False), (2, True)])
+def test_restore_test_requires_rows(tmp_path, rows, ok):
+    # A schema-only database used to pass as "restore OK: ... 0 entries"
+    # (review #28). Stub restic "restores" a fixture db; sqlite3 is real.
+    import sqlite3
+    fixture = tmp_path / "fixture.db"
+    con = sqlite3.connect(fixture)
+    con.execute("CREATE TABLE entries (id INTEGER PRIMARY KEY)")
+    con.executemany("INSERT INTO entries DEFAULT VALUES", [()] * rows)
+    con.commit()
+    con.close()
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    (stubs / "restic").write_text("""#!/bin/sh
+d="$4/var/lib/nnp-backup/staging"; mkdir -p "$d"; cp "$FIXTURE_DB" "$d/app.db"
+""")
+    # BSD mktemp ignores TMPDIR; keep the scratch dir inside tmp_path.
+    (stubs / "mktemp").write_text('#!/bin/sh\nmkdir "$STUB_TMP" && echo "$STUB_TMP"\n')
+    for name in ("restic", "mktemp"):
+        (stubs / name).chmod(0o755)
+    env = {"PATH": f"{stubs}:/usr/bin:/bin", "STUB_TMP": str(tmp_path / "restore"),
+           "RESTIC_REPOSITORY": "b2:test:nnp", "FIXTURE_DB": str(fixture)}
+    result = subprocess.run(["bash", str(RESTORE_SH)], env=env, capture_output=True, text=True)
+    if ok:
+        assert result.returncode == 0, result.stderr
+        assert "restore OK: integrity ok, 2 entries" in result.stdout
+    else:
+        assert result.returncode != 0
+        assert "no entries" in result.stderr

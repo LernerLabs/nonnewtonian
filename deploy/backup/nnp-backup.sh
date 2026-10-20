@@ -18,7 +18,11 @@ umask 077
 
 # Dead-man pings: /start, then "" on success or /fail on any error exit. A
 # failed ping never fails the backup; a MISSING success ping is what alerts.
-ping() { curl -fsS -m 10 --retry 3 -o /dev/null "${NNP_BACKUP_PING_URL}$1" || true; }
+# The URL goes to curl as a config on stdin (-K -), never on argv: argv is
+# world-readable in /proc, and anyone holding the URL can fake success pings.
+# (Config quoting: the URL must not contain a double quote or backslash;
+# healthchecks.io URLs never do.)
+ping() { printf 'url = "%s%s"\n' "$NNP_BACKUP_PING_URL" "$1" | curl -fsS -m 10 --retry 3 -o /dev/null -K - || true; }
 
 # Root-owned: never inside the nnp-owned tree, where the app user could plant
 # a symlink at the snapshot path and have root overwrite any file.
@@ -50,9 +54,24 @@ integ="$(sqlite3 "$snap" 'PRAGMA integrity_check;')"
 # otherwise every later night fails on the leftover lock.
 restic unlock
 
-restic backup --tag nnp "$snap" "$NNP_PHOTOS"
+# A fixed --host, and forget grouping by tag alone (restic's default groups by
+# host+paths): a rebuilt server with a new hostname, or a changed staging path,
+# must still prune the old snapshots, or removed content outlives the six-month
+# retention the privacy page promises. Snapshots taken before this fix carry
+# the real hostname; they share the "nnp" tag group, so they are pruned too.
+# NNP_BACKUP_TAG (optional) adds a second tag; install.sh passes
+# "pre-migration" for the snapshot its rollback hint points at.
+tags=(--tag nnp)
+[ -z "${NNP_BACKUP_TAG:-}" ] || tags+=(--tag "$NNP_BACKUP_TAG")
+restic backup --host nnp "${tags[@]}" "$snap" "$NNP_PHOTOS"
 
-restic forget --tag nnp \
+# --keep-tag pre-migration: keep-daily keeps only the LAST snapshot of a day,
+# so the nightly run would otherwise prune a same-day pre-migration snapshot
+# before anyone rolls back to it. KNOWN LIMITATION: these are then kept
+# FOREVER, past the six-month window the privacy page promises, until pruned
+# by hand (deploy/backup/README.md, "Pre-migration snapshots").
+restic forget --group-by tags --tag nnp \
+  --keep-tag pre-migration \
   --keep-daily "${KEEP_DAILY:-7}" \
   --keep-weekly "${KEEP_WEEKLY:-4}" \
   --keep-monthly "${KEEP_MONTHLY:-6}" \
