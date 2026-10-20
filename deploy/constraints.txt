@@ -1,0 +1,37 @@
+# pip constraints for the server install (install.sh: pip install -c this file).
+# Generated 2026-10-20 from `pip freeze` of the laptop venv (Python 3.14),
+# keeping only the app's runtime dependency closure (test-only packages such
+# as pytest, pluggy, iniconfig, Pygments dropped). These are the versions the
+# test suite passed against.
+#
+# gunicorn is NOT pinned here: it was not installed in the venv this was
+# generated from, so there is no tested version to pin. The pyproject
+# `deploy` extra bounds it (gunicorn>=22,<24).
+#
+# The server runs Python 3.12; these pins were tested only under 3.14. The
+# go-live smoke test is the check that the 3.12 wheels behave the same.
+blinker==1.9.0
+certifi==2026.6.17
+charset-normalizer==3.4.9
+click==8.4.2
+Deprecated==1.3.1
+Flask==3.1.3
+Flask-Limiter==4.1.1
+Flask-WTF==1.3.0
+idna==3.18
+itsdangerous==2.2.0
+Jinja2==3.1.6
+limits==5.8.0
+lxml==6.1.1
+MarkupSafe==3.0.3
+ordered-set==4.1.0
+packaging==26.2
+pillow==12.3.0
+python-pptx==1.0.2
+requests==2.34.2
+typing_extensions==4.16.0
+urllib3==2.7.0
+Werkzeug==3.1.8
+wrapt==2.2.2
+WTForms==3.2.2
+xlsxwriter==3.2.9

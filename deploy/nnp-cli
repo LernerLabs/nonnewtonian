@@ -1,0 +1,20 @@
+#!/bin/sh
+# Run the `nonnewtonian` CLI on the server as user nnp, with the app's
+# environment from /etc/nnp/nnp.env (root-only, so this needs sudo). Usage:
+#   sudo /opt/nnp/deploy/nnp-cli migrate --db /var/lib/nnp/app.db --check
+#   sudo /opt/nnp/deploy/nnp-cli migrate --db /var/lib/nnp/app.db
+# Spell the path out: a "$NNP_DB" on the command line expands in YOUR shell,
+# where it is not set, before this script loads nnp.env.
+set -eu
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "nnp-cli: run as root (sudo); it reads /etc/nnp/nnp.env" >&2
+    exit 1
+fi
+
+set -a
+. /etc/nnp/nnp.env
+set +a
+cd /var/lib/nnp
+umask 027
+exec runuser -u nnp -- /opt/nnp/.venv/bin/nonnewtonian "$@"
