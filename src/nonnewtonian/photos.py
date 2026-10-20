@@ -56,7 +56,7 @@ MAX_PIXELS_FULL_DECODE = 12_000_000  # non-JPEG: no reduced decode (see normaliz
 # cap (views_public.DECK_PHOTO_BYTES_CAP).  A submit that waits longer
 # than this keeps its entry and loses only the photo, with a warning.
 _NORMALIZE_SLOT = threading.BoundedSemaphore(1)
-NORMALIZE_WAIT_SECONDS = 10
+NORMALIZE_WAIT_SECONDS = 2  # a waiter holds a worker thread; fail fast like the deck slot
 
 MAX_BYTES = 8 * 1024 * 1024
 FETCH_TIMEOUT = 5.0      # per connect/read

@@ -53,7 +53,7 @@ could plant a symlink for root to overwrite.
    never appears on a command line or in your shell history:
    ```
    sudo install -d -m 700 /etc/nnp-backup
-   sudo bash -c 'umask 077; read -rsp "passphrase: " p; echo; printf "%s" "$p" > /etc/nnp-backup/restic-pass'
+   sudo bash -c 'umask 077; install -m 600 /dev/null /etc/nnp-backup/restic-pass; IFS= read -rsp "passphrase: " p; echo; printf "%s" "$p" > /etc/nnp-backup/restic-pass'
    sudo ls -l /etc/nnp-backup/restic-pass
    ```
    You should see: `-rw-------` and `root root` on the file.

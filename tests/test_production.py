@@ -279,3 +279,13 @@ def test_public_paths_are_cacheable(tmp_path):
     app = create_app({"DB_PATH": str(_migrated_db(tmp_path)),
                       "PHOTO_DIR": str(tmp_path / "photos")})
     assert "no-store" not in app.test_client().get("/about").headers.get("Cache-Control", "")
+
+
+def test_trailing_slash_urls_serve_the_same_page(tmp_path):
+    # The Caddy outage fallback redirects /scientists -> /scientists/; that
+    # URL must not 404 once the app is back (review follow-up).
+    app = create_app({"DB_PATH": str(_migrated_db(tmp_path)), "PHOTO_DIR": str(tmp_path / "photos")})
+    c = app.test_client()
+    assert c.get("/about").status_code == 200
+    assert c.get("/about/").status_code == 200
+    assert c.get("/scientists/").status_code == 200

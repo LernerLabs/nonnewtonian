@@ -310,7 +310,14 @@ case "$rc" in
     1) premigration_backup ;;
     *) die "nnp-cli migrate --check failed (rc=$rc)" ;;
 esac
-"$REPO/deploy/nnp-cli" migrate --db "$DB"
+if ! "$REPO/deploy/nnp-cli" migrate --db "$DB"; then
+    echo "migrate FAILED. Each migration runs in one transaction, so the schema is either" >&2
+    echo "at the previous version or fully migrated; check with: $REPO/deploy/nnp-cli migrate --db $DB --check" >&2
+    if [ "$SNAPSHOT" = 1 ]; then
+        echo "A pre-migration snapshot exists: restic snapshots --tag pre-migration (deploy/RUNBOOK.md, restore)." >&2
+    fi
+    exit 1
+fi
 see "'up to date' (or the names of the migrations just applied)"
 
 step "8/9 start the app"

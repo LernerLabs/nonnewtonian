@@ -18,7 +18,7 @@ from ..slides import build_deck, build_entry_slide, DeckChapter
 from . import limiter
 from . import queries as q
 
-bp =Blueprint("public", __name__)
+bp = Blueprint("public", __name__)
 
 LOW_DISK_BYTES = 256 * 1024 ** 2
 _HEAVY_BUILD = threading.BoundedSemaphore(1)   # whole-book/class decks; 512MB box
@@ -185,7 +185,7 @@ def healthz():
 @bp.route("/photos/<path:relpath>")
 def photo(relpath):
     """Serve a stored photo.  In production Caddy serves this tree directly
-    (deploy/Caddyfile); this route is the dev fallback.  Neither checks
+    (deploy/caddy/Caddyfile); this route is the dev fallback.  Neither checks
     approval status: a pending or rejected photo is reachable by anyone
     holding its content-hash URL."""
     photo_dir = Path(current_app.config["PHOTO_DIR"]).resolve()

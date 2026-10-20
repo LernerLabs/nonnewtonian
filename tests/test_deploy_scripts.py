@@ -145,7 +145,7 @@ def test_readme_passphrase_setup_is_never_world_readable_or_on_argv():
     # passphrase sat in shell history (review #26).
     readme = (ROOT / "deploy/backup/README.md").read_text()
     assert "sudo install -d -m 700 /etc/nnp-backup" in readme
-    assert "umask 077; read -rsp" in readme
+    assert "umask 077; install -m 600 /dev/null /etc/nnp-backup/restic-pass; IFS= read -rsp" in readme
     assert "YOUR-LONG-RANDOM-PASSPHRASE" not in readme
     assert "mkdir -p /etc/nnp-backup" not in readme
 

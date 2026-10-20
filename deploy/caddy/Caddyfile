@@ -11,8 +11,8 @@
 # are URL paths, and an access log would record them. Caddy still logs
 # handler errors (every 502/504, e.g. while nnp restarts on an update) with
 # the request URI and client IP, so the global `log` block below rewrites
-# those fields to REDACTED. `caddy validate` is the syntax check (older
-# Caddy versions want the filters without the `fields` block); the repo test
+# those fields to REDACTED. `caddy validate` is the syntax check (the
+# `fields { }` form is the one every Caddy 2.x accepts); the repo test
 # only greps. Confirm on the server: stop nnp, curl /manage/x, and
 # `journalctl -u caddy` must not show /manage/x or your IP.
 {

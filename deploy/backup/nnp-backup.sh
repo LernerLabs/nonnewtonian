@@ -62,6 +62,10 @@ restic unlock
 # NNP_BACKUP_TAG (optional) adds a second tag; install.sh passes
 # "pre-migration" for the snapshot its rollback hint points at.
 tags=(--tag nnp)
+case "${NNP_BACKUP_TAG:-}" in
+    ""|pre-migration) ;;
+    *) echo "NNP_BACKUP_TAG must be empty or pre-migration: any other tag forms its own retention group that forget never prunes" >&2; exit 1 ;;
+esac
 [ -z "${NNP_BACKUP_TAG:-}" ] || tags+=(--tag "$NNP_BACKUP_TAG")
 restic backup --host nnp "${tags[@]}" "$snap" "$NNP_PHOTOS"
 

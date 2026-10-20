@@ -61,13 +61,17 @@ def create_app(config: dict | None = None, *, production: bool = False) -> Flask
         # synchronizer token + Secure/SameSite=Lax cookie are the defense.
         WTF_CSRF_SSL_STRICT=False,
         SMTP_HOST=os.environ.get("NNP_SMTP_HOST", ""),
-        SMTP_PORT=int(port) if port.isdigit() else port,
+        SMTP_PORT=int(port) if port.isdecimal() else port,
         SMTP_USER=os.environ.get("NNP_SMTP_USER", ""),
         SMTP_PASSWORD=os.environ.get("NNP_SMTP_PASSWORD", ""),
         MAIL_FROM=os.environ.get("NNP_MAIL_FROM", ""),
     )
     if config:
         app.config.update(config)
+    # /scientists and /scientists/ are the same page: Caddy's outage fallback
+    # redirects directory requests to the slash form (deploy/caddy/Caddyfile),
+    # and those URLs must keep working once the app is back.
+    app.url_map.strict_slashes = False
     app.config["SMTP_CONFIGURED"] = all(
         app.config[k] for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "MAIL_FROM"))
     if production:

@@ -48,6 +48,11 @@ if [ -n "$links" ]; then
     bad "symlinks under $DATA/photos or $DATA/export (first 20):"$'\n'"$(printf '%s\n' "$links" | head -n 20)"
 fi
 
+# Photo intake writes .<hash>.<pid>.<tid>.tmp and renames it into place; a
+# SIGKILL mid-write (OOM) leaves an orphan that restic would back up forever.
+tmps=$(find "$DATA/photos" -name '.*.tmp' -mtime +1 2>/dev/null || true)
+[ -z "$tmps" ] || bad "orphan photo temp files older than a day (delete them):"$'\n'"$(printf '%s\n' "$tmps" | head -n 5)"
+
 failed=$(systemctl --failed --no-legend --plain) || failed="(systemctl --failed did not run)"
 [ -z "$failed" ] || bad "failed units: $failed"
 

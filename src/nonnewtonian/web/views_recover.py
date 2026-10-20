@@ -106,7 +106,7 @@ _TOO_MANY = """{% extends "base.html" %}
 {% block title %}Too many requests - {{ site_name }}{% endblock %}
 {% block content %}
   <h1>Too many requests</h1>
-  <p>Email recovery is busy for now; try again tomorrow. Or email
+  <p>Email recovery is busy for now; try again later. Or email
     <a href="mailto:mglerner@smith.edu">mglerner@smith.edu</a> FROM the address you gave when
     creating the class, with the class name; I will verify and send a new link.</p>
 {% endblock %}"""
