@@ -5,8 +5,9 @@ No ORM.  Migrations are numbered ``NNNN_name.sql`` files in the
 ``applied_migrations`` so re-running is idempotent.
 
 Concurrency posture (from the plan's adversarial review): WAL journal
-mode so readers never block the writer, a busy timeout so the two
-gunicorn workers wait rather than erroring on lock contention, and
+mode so readers never block the writer, a busy timeout so the gunicorn
+worker threads (one process; see deploy/gunicorn.conf.py) wait rather
+than erroring on lock contention, and
 foreign keys on.  ``connect`` applies these per connection; the web app
 opens one connection per request.
 """
@@ -47,6 +48,12 @@ def applied_migrations(conn: sqlite3.Connection) -> set[str]:
 def migration_files(migrations_dir: Path | None = None) -> list[Path]:
     directory = migrations_dir or _MIGRATIONS_DIR
     return sorted(directory.glob("[0-9]*.sql"))
+
+
+def pending_migrations(conn: sqlite3.Connection, migrations_dir: Path | None = None) -> list[str]:
+    """Names of migration files not yet recorded in applied_migrations."""
+    done = applied_migrations(conn)
+    return [p.name for p in migration_files(migrations_dir) if p.name not in done]
 
 
 def migrate(conn: sqlite3.Connection, *, now: str, migrations_dir: Path | None = None) -> list[str]:

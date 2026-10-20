@@ -21,6 +21,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+deploy = ["gunicorn>=22,<24"]
+
+[project.scripts]
+nonnewtonian = "nonnewtonian.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
