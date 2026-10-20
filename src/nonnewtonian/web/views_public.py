@@ -2,17 +2,41 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
+import os
+import shutil
+import threading
 from pathlib import Path
 
 from flask import (
-    Blueprint, abort, current_app, render_template, request, send_file, send_from_directory,
+    Blueprint, abort, current_app, make_response, render_template, request, send_file,
+    send_from_directory,
 )
 
 from ..slides import build_deck, build_entry_slide, DeckChapter
 from . import queries as q
 
 bp = Blueprint("public", __name__)
+
+LOW_DISK_BYTES = 256 * 1024 ** 2
+_HEAVY_BUILD = threading.BoundedSemaphore(1)   # whole-book/class decks; 512MB box
+HEAVY_BUILD_WAIT_SECONDS = 20
+
+
+@contextlib.contextmanager
+def heavy_build():
+    """At most one whole-deck build at a time. Correct only because gunicorn
+    runs ONE process (deploy/gunicorn.conf.py)."""
+    # abort() here raises before the try: nothing was acquired, so nothing
+    # is released (and a BoundedSemaphore would raise on an extra release).
+    if not _HEAVY_BUILD.acquire(timeout=HEAVY_BUILD_WAIT_SECONDS):
+        abort(make_response("The deck builder is busy; please try again in a minute.",
+                            503, {"Retry-After": "30"}))
+    try:
+        yield
+    finally:
+        _HEAVY_BUILD.release()
 
 
 def _db():
@@ -103,6 +127,11 @@ def healthz():
         _db().execute("SELECT 1 FROM entries LIMIT 1")
     except Exception:  # pragma: no cover
         abort(503)
+    photo_dir = Path(current_app.config["PHOTO_DIR"])
+    if not os.access(photo_dir, os.W_OK):
+        return "photo dir not writable", 503
+    if shutil.disk_usage(photo_dir).free < LOW_DISK_BYTES:
+        return "low disk", 503
     return "ok", 200
 
 
@@ -110,8 +139,10 @@ def healthz():
 
 @bp.route("/photos/<path:relpath>")
 def photo(relpath):
-    """Serve a stored photo.  In production Caddy serves this tree
-    directly; the route is the dev/local fallback."""
+    """Serve a stored photo.  In production Caddy serves this tree directly
+    (deploy/Caddyfile); this route is the dev fallback.  Neither checks
+    approval status: a pending or rejected photo is reachable by anyone
+    holding its content-hash URL."""
     photo_dir = Path(current_app.config["PHOTO_DIR"]).resolve()
     return send_from_directory(photo_dir, relpath)
 
@@ -156,8 +187,11 @@ def textbook_deck(slug):
         )
         for c in chapters if c.entries
     ]
-    prs = build_deck(deck_chapters, deck_title=tb["title"])
-    return _send_pptx(prs, f"{slug}-deck.pptx")
+    # The save into the in-memory buffer is as heavy as the build, so both
+    # sit inside the one-at-a-time slot.
+    with heavy_build():
+        prs = build_deck(deck_chapters, deck_title=tb["title"])
+        return _send_pptx(prs, f"{slug}-deck.pptx")
 
 
 def _send_pptx(prs, filename):

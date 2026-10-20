@@ -16,7 +16,7 @@ from ..photos import PhotoError, fetch_photo, store_bytes
 from ..slugs import slugify
 from . import queries as q
 from . import limiter
-from .views_public import _entry_image_paths, _send_pptx
+from .views_public import _entry_image_paths, _send_pptx, heavy_build
 from ..slides import DeckChapter, build_deck, build_entry_slide
 
 bp = Blueprint("cls", __name__)
@@ -75,7 +75,10 @@ def submit(slug):
 
 
 @bp.route("/c/<slug>/submit", methods=["POST"])
-@limiter.limit("20 per hour")
+# Per real client IP (ProxyFix in production). A whole class behind one
+# school NAT (network address translation) shares a single IP, and 400
+# re-renders count too, so this is sized for a class, not a person.
+@limiter.limit("120 per hour;30 per minute")
 def submit_post(slug):
     coll = _collection_or_404(slug)
     conn = _db()
@@ -173,8 +176,14 @@ def _attach_photo(conn, coll, entry_id, values, files) -> str | None:
             stored = store_bytes(upload.read(), photo_dir)
         elif url:
             stored = fetch_photo(url, photo_dir)
-    except PhotoError as exc:
-        return str(exc)
+    except (PhotoError, OSError) as exc:
+        # The entry has already committed: an OSError (e.g. ENOSPC, disk
+        # full) must become a warning, not a 500 whose retry then trips the
+        # duplicate-scientist guard.
+        # Worded to sit inside submit_thanks.html's "Your photo didn't
+        # upload (...), but everything else was saved." sentence.
+        return str(exc) if isinstance(exc, PhotoError) else (
+            "the server could not store the file just now")
     if not stored:
         return None
     conn.execute(
@@ -222,5 +231,6 @@ def deck(slug):
         DeckChapter(chapter=c.chapter, topics=c.topics,
                     entries=[(e.to_parser_entry(), _entry_image_paths(e)) for e in c.entries])
         for c in chapters if c.entries]
-    prs = build_deck(deck_chapters, deck_title=coll["name"])
-    return _send_pptx(prs, f"{slug}-deck.pptx")
+    with heavy_build():
+        prs = build_deck(deck_chapters, deck_title=coll["name"])
+        return _send_pptx(prs, f"{slug}-deck.pptx")

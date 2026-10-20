@@ -27,7 +27,10 @@ from __future__ import annotations
 import hashlib
 import io
 import ipaddress
+import os
 import socket
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -43,7 +46,8 @@ from PIL import Image
 MAX_PIXELS = 30_000_000
 
 MAX_BYTES = 8 * 1024 * 1024
-FETCH_TIMEOUT = 5.0
+FETCH_TIMEOUT = 5.0      # per connect/read
+FETCH_DEADLINE = 20.0    # whole fetch incl. redirects; gthread's timeout is a heartbeat, not a per-request limit
 MAX_REDIRECTS = 5
 
 # The NAT64 well-known prefix passes ipaddress.is_global but can reach
@@ -185,7 +189,18 @@ def store_bytes(data: bytes, dest_dir: Path, *, original_url: str | None = None)
     subdir.mkdir(parents=True, exist_ok=True)
     path = subdir / f"{digest}.{ext}"
     if not path.exists():
-        path.write_bytes(normalized)
+        # Write-then-rename so a crash or ENOSPC never leaves a truncated
+        # file under the final content-hash name (which would then be
+        # trusted forever by the exists() check above).  The tmp name is
+        # per process and thread so concurrent stores of one image cannot
+        # clobber each other's partial writes.
+        tmp = subdir / f".{digest}.{os.getpid()}.{threading.get_ident()}.tmp"
+        try:
+            tmp.write_bytes(normalized)
+            os.replace(tmp, path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
     return StoredPhoto(
         path=path,
         original_url=original_url,
@@ -245,6 +260,14 @@ def fetch_photo(url: str, dest_dir: Path, *, session: requests.Session | None = 
     resolve-check and the socket connect."""
     session = session or requests.Session()
     real_session = isinstance(session, requests.Session)  # tests inject fakes
+    start = time.monotonic()
+
+    def _check():
+        # FETCH_TIMEOUT bounds each connect/read; a server that trickles a
+        # byte every few seconds would never trip it.  This bounds the total.
+        if time.monotonic() - start > FETCH_DEADLINE:
+            raise PhotoError("That site was too slow to send the image.")
+
     current = url
     for _ in range(MAX_REDIRECTS + 1):
         host, _port, ip = validate_url(current, resolver=resolver)
@@ -253,6 +276,7 @@ def fetch_photo(url: str, dest_dir: Path, *, session: requests.Session | None = 
         response = session.get(
             current, stream=True, timeout=FETCH_TIMEOUT, allow_redirects=False
         )
+        _check()
         if response.is_redirect or response.is_permanent_redirect:
             location = response.headers.get("Location")
             if not location:
@@ -266,6 +290,7 @@ def fetch_photo(url: str, dest_dir: Path, *, session: requests.Session | None = 
         data = b""
         for chunk in response.iter_content(chunk_size=65536):
             data += chunk
+            _check()
             if len(data) > MAX_BYTES:
                 raise PhotoError(
                     f"That image is larger than {MAX_BYTES // (1024 * 1024)} MB."
