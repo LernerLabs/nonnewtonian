@@ -44,6 +44,12 @@ nonnewtonian.org {
 	# photos.normalize_image only ever writes .jpg or .png.
 	# Cache is 1 day, not immutable, so a takedown is not pinned in
 	# browsers for a year.
+	# KNOWN LIMITATION: file_server follows symlinks, and nnp owns
+	# /var/lib/nnp, so a compromised app could link a photo-shaped path
+	# (or a path under export/current, served below) to any file the caddy
+	# user can read, e.g. Caddy's own TLS private key, and fetch it over
+	# HTTPS. The regex limits URL shape, not link targets. Not prevented
+	# here; the daily self-check alerts on any symlink under /var/lib/nnp.
 	@photo path_regexp ^/photos/[0-9a-f]{2}/[0-9a-f]{64}\.(jpg|png)$
 	handle @photo {
 		root * /var/lib/nnp

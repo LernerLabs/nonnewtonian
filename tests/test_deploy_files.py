@@ -422,3 +422,10 @@ def test_print_admin_url_once_only_on_the_creating_run(tmp_path):
     assert "SAVE THIS IN YOUR PASSWORD MANAGER NOW: https://nonnewtonian.org/admin/tok123" in fresh.stdout
     rerun, _ = _run_install_functions(tmp_path, names, head + "FRESH=0\nprint_admin_url_once\n", stubs={})
     assert rerun.returncode == 0 and rerun.stdout == ""
+
+
+def test_caddyfile_flags_that_file_server_follows_symlinks():
+    # M7 review #22: accepted, not prevented; keep the limitation written
+    # where it bites (the self-check is what catches a planted link).
+    before_photo = CADDYFILE[:CADDYFILE.index("@photo path_regexp")]
+    assert "KNOWN LIMITATION: file_server follows symlinks" in before_photo
