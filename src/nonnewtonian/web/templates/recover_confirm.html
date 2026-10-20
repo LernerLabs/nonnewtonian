@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}New management link - {{ site_name }}{% endblock %}
+{% block content %}
+  {% if error %}
+    <h1>That link didn't work</h1>
+    <p>{{ error }} You can <a href="{{ url_for('recover.form') }}">ask for a new one</a>.</p>
+  {% else %}
+    <h1>New management link</h1>
+    <p>Make a new management link for "{{ coll.name }}"? Your old link will stop working.</p>
+    <form method="post" action="{{ url_for('recover.confirm_post', signed=signed) }}" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit">Make a new management link</button>
+    </form>
+  {% endif %}
+{% endblock %}

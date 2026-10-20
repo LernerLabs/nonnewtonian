@@ -13,6 +13,7 @@
       <button type="button" data-copy="student-url">Copy</button>
     </div>
   </div>
+  <p class="small">Lost your management link? <a href="{{ url_for('recover.form') }}">Get a new one</a>.</p>
 
   <h2>Waiting for review</h2>
   {% if not pending %}

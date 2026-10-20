@@ -126,11 +126,12 @@ def create_app(config: dict | None = None, *, production: bool = False) -> Flask
     app.get_db = get_db  # type: ignore[attr-defined]
     app.utcnow = _utcnow  # type: ignore[attr-defined]
 
-    from . import views_public, views_admin, views_manage, views_class
+    from . import views_public, views_admin, views_manage, views_class, views_recover
     app.register_blueprint(views_public.bp)
     app.register_blueprint(views_admin.bp)
     app.register_blueprint(views_manage.bp)
     app.register_blueprint(views_class.bp)
+    app.register_blueprint(views_recover.bp)
 
     return app
 
