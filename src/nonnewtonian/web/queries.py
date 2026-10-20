@@ -77,7 +77,9 @@ class DisplayEntry:
             description=self.description,
             sources=self.sources,
             photos=[p.original_url for p in self.photos if p.original_url],
-            contributors=[self.contributor_name] if self.contributor_name else [],
+            # The attribution mode applies to slide notes too: a slide is
+            # downloaded and re-shared, so never the raw contributor_name.
+            contributors=[self.displayed_credit()] if self.displayed_credit() else [],
         )
 
 
