@@ -126,3 +126,82 @@ def test_install_always_restarts_caddy_so_it_picks_up_group_nnp():
     assert "systemctl restart caddy" in step6
     assert not [line for line in step6 if line.startswith("systemctl reload caddy")]
     assert "CADDY_RESTART" not in INSTALL_SH
+
+
+def _install_function(name: str) -> str:
+    """The source of one shell function from install.sh."""
+    m = re.search(rf"^{name}\(\) \{{(?: [^\n]*\}}$|\n.*?^\}}$)", INSTALL_SH, re.M | re.S)
+    assert m, f"no function {name} in install.sh"
+    return m.group(0)
+
+
+# Stubs record their argv; runuser then runs the command after `--` with
+# RUNUSER=1 set, so a test can tell which commands ran "as nnp".
+INSTALL_STUBS = {
+    "runuser": 'echo "runuser $*" >> "$STUB_LOG"\nshift 3\nRUNUSER=1 exec "$@"\n',
+    "chown": 'echo "chown $*" >> "$STUB_LOG"\n',
+    "chmod": 'echo "chmod RUNUSER=${RUNUSER:-0} $*" >> "$STUB_LOG"\n',
+}
+
+
+def _run_install_functions(tmp_path, names, body, stubs=INSTALL_STUBS, env_extra=None):
+    """Run `body` in bash after defining install.sh's functions `names`,
+    with stub executables first on PATH. Returns (result, stub log lines)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    for name, text in stubs.items():
+        p = bindir / name
+        p.write_text("#!/bin/sh\n" + text)
+        p.chmod(0o755)
+    log = tmp_path / "calls.log"
+    log.touch()
+    script = "set -euo pipefail\n" + "\n".join(_install_function(n) for n in names) + "\n" + body
+    env = {"PATH": f"{bindir}:/usr/bin:/bin", "STUB_LOG": str(log)}
+    env.update(env_extra or {})
+    result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+    return result, log.read_text().splitlines()
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_own_db_files_chowns_without_following_links_and_chmods_as_nnp(tmp_path):
+    # M7 review #5: root used to run `chown nnp:nnp app.db*; chmod 600 app.db`.
+    db = tmp_path / "app.db"
+    db.touch()
+    (tmp_path / "app.db-wal").touch()
+    result, calls = _run_install_functions(
+        tmp_path, ["die", "no_symlink", "own_db_files"], f"DB={db}\nown_db_files\n")
+    assert result.returncode == 0, result.stderr
+    assert f"chown -h nnp:nnp {db}" in calls
+    assert f"chown -h nnp:nnp {db}-wal" in calls
+    assert not any("-shm" in c for c in calls)  # absent files are skipped
+    assert f"chmod RUNUSER=1 600 {db}" in calls
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+@pytest.mark.parametrize("planted", ["app.db", "app.db-wal", "app.db-shm"])
+def test_own_db_files_refuses_a_planted_symlink(tmp_path, planted):
+    target = tmp_path / "shadow"
+    target.touch()
+    db = tmp_path / "app.db"
+    if planted != "app.db":
+        db.touch()
+    (tmp_path / planted).symlink_to(target)
+    result, calls = _run_install_functions(
+        tmp_path, ["die", "no_symlink", "own_db_files"], f"DB={db}\nown_db_files\n")
+    assert result.returncode != 0
+    assert "is a symlink" in result.stderr
+    assert not any(c.startswith(("chmod", "runuser")) for c in calls)
+    assert not any(c.endswith(str(tmp_path / planted)) for c in calls)
+
+
+def test_install_refuses_symlinked_nnp_dirs_and_writes_down_html_as_nnp():
+    # M7 review #21: root installed down.html through export/current, which
+    # nnp can swap for a link; step 3's `install -d` runs through the same paths.
+    step3 = _install_step(3)
+    guard = step3.index("no_symlink")
+    for p in ("/var/lib/nnp/photos", "/var/lib/nnp/export", "/var/lib/nnp/export/current"):
+        assert p in step3[:step3.index("\n", guard)], p
+    assert guard < step3.index("install -d -o nnp")
+    step6 = _install_step(6)
+    assert 'runuser -u nnp -- install -m 640 "$REPO/deploy/caddy/down.html"' in step6
+    assert "install -o nnp" not in step6

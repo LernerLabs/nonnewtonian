@@ -29,12 +29,27 @@ export DEBIAN_FRONTEND=noninteractive
 step() { echo; echo "== $*"; }
 see() { echo "You should see: $*"; }
 die() { echo "ERROR: $*" >&2; exit 1; }
+# nnp owns /var/lib/nnp, so a compromised app could plant a link there for
+# root to follow; refuse instead.
+no_symlink() { [ ! -L "$1" ] || die "$1 is a symlink; the app user may be compromised: investigate before rerunning"; }
 # Read one variable out of a root-only env file without exporting the rest.
 envget() { ( set -a; . "$1"; eval "printf '%s' \"\${$2:-}\"" ); }
 
 [ "$(id -u)" -eq 0 ] || die "run as root: sudo $0 $*"
 [ "$(readlink -f "$0")" = "$REPO/deploy/install.sh" ] \
     || die "install.sh must run from $REPO/deploy/install.sh (clone the repo to $REPO)"
+
+# Hand the DB files to nnp without following links: explicit names (no glob),
+# chown -h, and chmod (which always follows) run as nnp, who owns the file by
+# then, so a link swapped in after the check gains nothing.
+own_db_files() {
+    local f
+    for f in "$DB" "$DB-wal" "$DB-shm"; do
+        no_symlink "$f"
+        if [ -e "$f" ]; then chown -h nnp:nnp "$f"; fi
+    done
+    runuser -u nnp -- chmod 600 "$DB"
+}
 
 print_admin_url_once() {
     [ "${FRESH:-0}" = 1 ] || return 0
@@ -172,6 +187,7 @@ see "no apt errors, a Caddy version line (v2.x), Automatic-Reboot \"true\" / Aut
 
 step "3/9 user and directories"
 id nnp >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/nnp --shell /usr/sbin/nologin nnp
+for p in /var/lib/nnp/photos /var/lib/nnp/export /var/lib/nnp/export/current; do no_symlink "$p"; done
 install -d -o nnp -g nnp -m 750 /var/lib/nnp /var/lib/nnp/photos /var/lib/nnp/export /var/lib/nnp/export/current
 install -d -m 700 /etc/nnp /var/lib/nnp-backup /var/lib/nnp-backup/staging
 # A running Caddy only picks up a new group on restart, so step 6 always
@@ -215,8 +231,9 @@ for f in "$REPO"/deploy/mirror/*.service "$REPO"/deploy/mirror/*.timer \
          "$REPO"/deploy/monitor/*.service "$REPO"/deploy/monitor/*.timer; do
     if [ -e "$f" ]; then cp "$f" /etc/systemd/system/; fi
 done
+# As nnp, so a link planted under export/ only reaches what nnp can write.
 [ -e /var/lib/nnp/export/current/down.html ] \
-    || install -o nnp -g nnp -m 640 "$REPO/deploy/caddy/down.html" /var/lib/nnp/export/current/down.html
+    || runuser -u nnp -- install -m 640 "$REPO/deploy/caddy/down.html" /var/lib/nnp/export/current/down.html
 if [ ! -e /etc/caddy/Caddyfile.dist ] && [ -e /etc/caddy/Caddyfile ]; then
     cp -p /etc/caddy/Caddyfile /etc/caddy/Caddyfile.dist
 fi
@@ -248,8 +265,7 @@ if [ ! -e "$DB" ]; then
     see "this message; nnp is NOT started until the database is in place"
     exit 0
 fi
-chown nnp:nnp "$DB"*
-chmod 600 "$DB"
+own_db_files
 rc=0
 "$REPO/deploy/nnp-cli" migrate --db "$DB" --check || rc=$?
 case "$rc" in
