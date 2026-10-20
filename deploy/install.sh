@@ -29,13 +29,59 @@ export DEBIAN_FRONTEND=noninteractive
 step() { echo; echo "== $*"; }
 see() { echo "You should see: $*"; }
 die() { echo "ERROR: $*" >&2; exit 1; }
-# Read one variable out of a root-only env file without exporting the rest.
-envget() { ( set -a; . "$1"; eval "printf '%s' \"\${$2:-}\"" ); }
+# nnp owns /var/lib/nnp, so a compromised app could plant a link there for
+# root to follow; refuse instead.
+no_symlink() { [ ! -L "$1" ] || die "$1 is a symlink; the app user may be compromised: investigate before rerunning"; }
+# Read one variable out of a root-only env file without running it: systemd
+# reads nnp.env too, and it takes `KEY=a b $c` literally where a shell would
+# not. Matches systemd for plain KEY=value lines and for one pair of quotes
+# around the whole value; NOT for backslash escapes, line continuations or
+# leading whitespace (nnp.env.example says to avoid those). Same parser as
+# deploy/nnp-cli. The last assignment wins, as in systemd.
+envget() {
+    local line val=
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in "$2="*) val=${line#*=} ;; esac
+    done < "$1"
+    case "$val" in
+        \'*\') val=${val#\'}; val=${val%\'} ;;
+        \"*\") val=${val#\"}; val=${val%\"} ;;
+    esac
+    printf '%s' "$val"
+}
 
 [ "$(id -u)" -eq 0 ] || die "run as root: sudo $0 $*"
 [ "$(readlink -f "$0")" = "$REPO/deploy/install.sh" ] \
     || die "install.sh must run from $REPO/deploy/install.sh (clone the repo to $REPO)"
 
+# Hand the DB files to nnp without following links: explicit names (no glob),
+# chown -h, and chmod (which always follows) run as nnp, who owns the file by
+# then, so a link swapped in after the check gains nothing.
+own_db_files() {
+    local f
+    for f in "$DB" "$DB-wal" "$DB-shm"; do
+        no_symlink "$f"
+        if [ -e "$f" ]; then chown -h nnp:nnp "$f"; fi
+    done
+    runuser -u nnp -- chmod 600 "$DB"
+}
+
+# Before a migration: snapshot with an extra restic tag, run directly rather
+# than through nnp-backup.service so the tag can be passed. nnp-backup.sh
+# keeps pre-migration snapshots out of its pruning (prune them by hand).
+# Sets SNAPSHOT=1 only when the snapshot was taken.
+premigration_backup() {
+    if systemctl is-enabled --quiet nnp-backup.timer; then
+        echo "pending migrations: taking a pre-migration backup snapshot first"
+        bash -c "set -a; . /etc/nnp-backup.env; set +a; NNP_BACKUP_TAG=pre-migration exec /opt/nnp/deploy/backup/nnp-backup.sh" \
+            || die "pre-migration backup failed; not migrating (output above)"
+        SNAPSHOT=1
+    else
+        echo "WARN: pending migrations and backups are not enabled yet; no pre-migration snapshot"
+    fi
+}
+
+# Only on the run that created the env file (step 5 and again at the end).
 print_admin_url_once() {
     [ "${FRESH:-0}" = 1 ] || return 0
     echo
@@ -68,21 +114,22 @@ mirror_key() {
     local d=/var/lib/nnp/.ssh
     step "mirror deploy key"
     id nnp >/dev/null 2>&1 || die "user nnp missing; run sudo $REPO/deploy/install.sh first"
+    no_symlink "$d"
     install -d -o nnp -g nnp -m 700 "$d"
+    # Everything inside .ssh runs as nnp: nnp owns the directory, so root
+    # writing, chowning or reading there would follow links nnp planted.
     [ -e "$d/mirror_ed25519" ] \
         || runuser -u nnp -- ssh-keygen -q -t ed25519 -N '' -C nnp-mirror@nonnewtonian.org -f "$d/mirror_ed25519"
     # Recorded once (trust on first use); delete known_hosts to re-record.
-    if [ ! -s "$d/known_hosts" ]; then
-        ssh-keyscan -t ed25519 github.com > "$d/known_hosts.new" 2>/dev/null
-        [ -s "$d/known_hosts.new" ] || die "ssh-keyscan github.com returned nothing (network?)"
-        mv "$d/known_hosts.new" "$d/known_hosts"
-    fi
-    chown nnp:nnp "$d/known_hosts"
-    chmod 644 "$d/known_hosts"
+    runuser -u nnp -- sh -c 'umask 022; [ -s "$1/known_hosts" ] && exit 0
+        ssh-keyscan -t ed25519 github.com > "$1/known_hosts.new" 2>/dev/null
+        [ -s "$1/known_hosts.new" ] || exit 1
+        mv "$1/known_hosts.new" "$1/known_hosts"' sh "$d" \
+        || die "ssh-keyscan github.com returned nothing (network?)"
     echo "Deploy key (GitHub: mglerner/nonnewtonian-mirror -> Settings -> Deploy keys -> Add, WITH write access):"
-    cat "$d/mirror_ed25519.pub"
+    runuser -u nnp -- cat "$d/mirror_ed25519.pub"
     echo "github.com host key recorded in $d/known_hosts:"
-    ssh-keygen -lf "$d/known_hosts"
+    runuser -u nnp -- ssh-keygen -lf "$d/known_hosts"
     echo "Compare that SHA256 with https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints"
     see "an ssh-ed25519 public key line, and a github.com ED25519 SHA256 fingerprint that matches GitHub's page exactly (if not, STOP: delete $d/known_hosts)"
 }
@@ -172,14 +219,12 @@ see "no apt errors, a Caddy version line (v2.x), Automatic-Reboot \"true\" / Aut
 
 step "3/9 user and directories"
 id nnp >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/nnp --shell /usr/sbin/nologin nnp
+for p in /var/lib/nnp/photos /var/lib/nnp/export /var/lib/nnp/export/current; do no_symlink "$p"; done
 install -d -o nnp -g nnp -m 750 /var/lib/nnp /var/lib/nnp/photos /var/lib/nnp/export /var/lib/nnp/export/current
 install -d -m 700 /etc/nnp /var/lib/nnp-backup /var/lib/nnp-backup/staging
-# A running Caddy only picks up a new group on restart (step 6).
-CADDY_RESTART=0
-if ! id -nG caddy | grep -qw nnp; then
-    usermod -aG nnp caddy
-    CADDY_RESTART=1
-fi
+# A running Caddy only picks up a new group on restart, so step 6 always
+# restarts it (/etc/group cannot tell whether the live process has nnp yet).
+id -nG caddy | grep -qw nnp || usermod -aG nnp caddy
 id nnp
 id -nG caddy
 see "uid/gid lines for nnp, and 'nnp' among caddy's groups"
@@ -203,13 +248,17 @@ if [ ! -e "$ENV_FILE" ]; then
     sed -i "s/^NNP_SECRET_KEY=\$/NNP_SECRET_KEY=$sk/; s/^NNP_ADMIN_TOKEN=\$/NNP_ADMIN_TOKEN=$at/" "$ENV_FILE"
     FRESH=1
     echo "created $ENV_FILE with a new secret key and admin token"
+    # Print now, not only at the end: a later step can abort this run, and
+    # every rerun keeps the existing file (FRESH=0), so it would never show.
+    # Steps 7/9 print it again on this run as a reminder.
+    print_admin_url_once
 else
     echo "kept existing $ENV_FILE (this script never overwrites it)"
 fi
 chown root:root "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 ls -l "$ENV_FILE"
-see "-rw------- 1 root root ... $ENV_FILE"
+see "on a first install the SAVE THIS ... admin URL line (save it now), then -rw------- 1 root root ... $ENV_FILE"
 
 step "6/9 systemd units and Caddy"
 cp "$REPO/deploy/systemd/nnp.service" /etc/systemd/system/
@@ -218,8 +267,9 @@ for f in "$REPO"/deploy/mirror/*.service "$REPO"/deploy/mirror/*.timer \
          "$REPO"/deploy/monitor/*.service "$REPO"/deploy/monitor/*.timer; do
     if [ -e "$f" ]; then cp "$f" /etc/systemd/system/; fi
 done
+# As nnp, so a link planted under export/ only reaches what nnp can write.
 [ -e /var/lib/nnp/export/current/down.html ] \
-    || install -o nnp -g nnp -m 640 "$REPO/deploy/caddy/down.html" /var/lib/nnp/export/current/down.html
+    || runuser -u nnp -- install -m 640 "$REPO/deploy/caddy/down.html" /var/lib/nnp/export/current/down.html
 if [ ! -e /etc/caddy/Caddyfile.dist ] && [ -e /etc/caddy/Caddyfile ]; then
     cp -p /etc/caddy/Caddyfile /etc/caddy/Caddyfile.dist
 fi
@@ -227,9 +277,9 @@ admin_email=$(envget "$ENV_FILE" NNP_ADMIN_EMAIL)
 if [ -n "$admin_email" ]; then
     sed "s|YOUR_EMAIL|$admin_email|" "$REPO/deploy/caddy/Caddyfile" > /etc/caddy/Caddyfile.new
 else
-    # Let's Encrypt rejects a placeholder contact, so drop the global
-    # options block (the only block opening with a bare "{" line) instead.
-    sed '/^{$/,/^}$/d' "$REPO/deploy/caddy/Caddyfile" > /etc/caddy/Caddyfile.new
+    # Let's Encrypt rejects a placeholder contact, so drop the email line
+    # (only that line: the global block also holds the log redaction).
+    sed '/^[[:space:]]*email YOUR_EMAIL$/d' "$REPO/deploy/caddy/Caddyfile" > /etc/caddy/Caddyfile.new
     echo "WARN: NNP_ADMIN_EMAIL not set in $ENV_FILE; Caddy registers with Let's Encrypt without a contact email (no expiry warnings). Set it and rerun to add one."
 fi
 # Validate before replacing, so a bad file never becomes the live config.
@@ -237,11 +287,10 @@ caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile.new
 mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
 systemctl daemon-reload
 systemctl enable --now caddy
-if [ "$CADDY_RESTART" = 1 ]; then
-    systemctl restart caddy
-else
-    systemctl reload caddy
-fi
+# Restart, not reload: a reload keeps the old process, which may predate
+# step 3's usermod (e.g. an earlier run died between step 3 and here) and
+# then cannot read /var/lib/nnp. Costs a moment of downtime per run.
+systemctl restart caddy
 systemctl is-active caddy
 see "'Valid configuration' from caddy validate, then 'active'"
 
@@ -252,20 +301,13 @@ if [ ! -e "$DB" ]; then
     see "this message; nnp is NOT started until the database is in place"
     exit 0
 fi
-chown nnp:nnp "$DB"*
-chmod 600 "$DB"
+own_db_files
 rc=0
+SNAPSHOT=0
 "$REPO/deploy/nnp-cli" migrate --db "$DB" --check || rc=$?
 case "$rc" in
     0) ;;
-    1)
-        if systemctl is-enabled --quiet nnp-backup.timer; then
-            echo "pending migrations: taking a backup snapshot first"
-            systemctl start nnp-backup.service || die "pre-migration backup failed; not migrating (journalctl -u nnp-backup.service)"
-        else
-            echo "WARN: pending migrations and backups are not enabled yet; no pre-migration snapshot"
-        fi
-        ;;
+    1) premigration_backup ;;
     *) die "nnp-cli migrate --check failed (rc=$rc)" ;;
 esac
 "$REPO/deploy/nnp-cli" migrate --db "$DB"
@@ -283,12 +325,21 @@ if [ "$ok" != 1 ]; then
     journalctl -u nnp -n 40 --no-pager
     echo "ERROR: nnp did not answer /healthz within 20s (log above)." >&2
     if [ -s "$LAST_GOOD" ]; then
-        echo "Rollback to the last commit that passed this check:" >&2
-        echo "  sudo git -C $REPO checkout $(cat "$LAST_GOOD") && sudo systemctl restart nnp" >&2
-        echo "If this run applied a migration, the old code may not match the new schema;" >&2
-        echo "restore the pre-migration snapshot instead (deploy/RUNBOOK.md, restore)." >&2
+        echo "Roll back to the last commit that passed this check (this script reruns" >&2
+        echo "pip, the units, migrate and this health check on it):" >&2
+        echo "  sudo git -C $REPO checkout $(cat "$LAST_GOOD") && sudo $REPO/deploy/install.sh" >&2
+        echo "That leaves $REPO on a detached HEAD. Once the fix is pushed, update with" >&2
+        echo "  sudo git -C $REPO checkout main && sudo git -C $REPO pull --ff-only && sudo $REPO/deploy/install.sh" >&2
     else
         echo "No earlier good deploy is recorded in $LAST_GOOD; fix forward." >&2
+    fi
+    if [ "$rc" = 1 ] && [ "$SNAPSHOT" = 1 ]; then
+        echo "This run applied a migration, so older code may not match the new schema;" >&2
+        echo "restore the pre-migration snapshot instead (restic snapshots --tag pre-migration;" >&2
+        echo "deploy/RUNBOOK.md, restore)." >&2
+    elif [ "$rc" = 1 ]; then
+        echo "This run applied a migration with NO pre-migration snapshot (backups not" >&2
+        echo "enabled), so older code may not match the new schema and there is nothing to restore." >&2
     fi
     exit 1
 fi
