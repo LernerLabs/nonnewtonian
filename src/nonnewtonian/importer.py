@@ -2,10 +2,10 @@
 TOML definitions into the SQLite database as communal-pending entries.
 
 Contract (from the plan and its adversarial review):
-  * nothing is silently dropped — unmatched placements are kept with
+  * nothing is silently dropped - unmatched placements are kept with
     textbook_id NULL and a flag; repeated blocks were already merged by
     the parser; corrections are applied with the original preserved.
-  * nothing is silently published — every seed entry lands
+  * nothing is silently published - every seed entry lands
     status='pending', communal_status='pending' for human review.
   * dry-run prints a per-file report and writes nothing.
   * re-running is idempotent (prior seed rows are cleared first).
@@ -42,8 +42,8 @@ NAME_CORRECTIONS = {
 # Flagged for human review but NOT auto-edited (prose corrections are
 # risky; a human confirms in the moderation queue).
 REVIEW_NOTES = {
-    "CVRaman.txt": "description says 'born ... 1988' — likely 1888 (verify)",
-    "MirandaCheng.txt": "placement cites author 'Ginzberg' — likely Ginzburg (verify)",
+    "CVRaman.txt": "description says 'born ... 1988' - likely 1888 (verify)",
+    "MirandaCheng.txt": "placement cites author 'Ginzberg' - likely Ginzburg (verify)",
 }
 
 # Descriptions that are near-verbatim from a share-alike/quoted source.
@@ -134,7 +134,7 @@ def load_textbooks(conn, textbooks_dir: Path, collection_path: Path, now: str,
     TOML files in ``textbooks_dir`` (one ``<slug>.toml`` each), plus the
     collection-level wanted scientists from ``collection_path``.
 
-    UPSERTs each textbook by slug so its id is STABLE across re-runs —
+    UPSERTs each textbook by slug so its id is STABLE across re-runs -
     delete+recreate would fire ON DELETE SET NULL on collections and
     placements that reference the textbook, silently orphaning live
     teacher/student data (M2 adversarial review, 3 confirmed findings).
@@ -268,7 +268,7 @@ def _insert_entry(conn, entry: Entry, filename: str, description: list[str],
             toc_row_id = _match_toc_row(conn, textbook_id, placement.chapter)
             if toc_row_id is None:
                 # Matched a textbook but the chapter isn't in its TOC
-                # (e.g. Lene Hau ch 40 of a 30-chapter book) — surface it
+                # (e.g. Lene Hau ch 40 of a 30-chapter book) - surface it
                 # for review rather than counting it as cleanly matched.
                 placement_flags.append("chapter-not-in-toc")
                 report.placements_unassigned += 1

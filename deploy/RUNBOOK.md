@@ -194,12 +194,12 @@ literally (nnp-cli and install.sh no longer source it as shell), so write
 quoting, and one pair of quotes around the whole value is stripped.
 Backslashes, line continuations and indented lines are not supported.
 
-Do not set `HTTP_PROXY`, `HTTPS_PROXY` or `ALL_PROXY` (any case) for
-nnp.service, in nnp.env or anywhere else: the photo fetcher (the `requests`
-library) would send student photo URLs through the proxy, which bypasses both
-the check that pins each fetch to the vetted public IP address (so a link
-cannot reach an internal address) and the 20 s fetch deadline. 1.4 checks
-this.
+The photo fetcher ignores `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY`
+(`session.trust_env = False` in `photos.py`): a proxied fetch would bypass
+both the check that pins each fetch to the vetted public IP address (so a
+link cannot reach an internal address) and the 20 s fetch deadline. Still do
+not set them for nnp.service; 1.4 checks that none reach it, as a belt and
+braces measure.
 
 If any required nnp.env check fails, the app refuses to boot and
 `journalctl -u nnp` shows `production preflight failed:` followed by EVERY
@@ -388,7 +388,7 @@ example about `/etc/nnp/mirror.env`, which does not exist until Session 3).
 Any `Unknown key`, `Invalid` or `Failed to parse` line is a real error: stop
 and fix it in the repo.
 
-No proxy reaches the app (see
+No proxy variable reaches the app (the fetcher ignores them anyway; see
 [Server layout and configuration](#server-layout-and-configuration)):
 
 ```
@@ -1550,9 +1550,10 @@ These are deliberate, from the M7 design, unless marked otherwise.
   every phase (connect, headers, body, each redirect) EXCEPT the DNS lookup,
   which follows the system resolver's timeouts and attempts
   (`/etc/resolv.conf`).
-- That deadline and the IP pinning of photo fetches both stop working if a
-  proxy variable reaches nnp.service (checked once in 1.4, not by the
-  self-check).
+- The photo fetcher ignores proxy environment variables by design; if that
+  line in `photos.py` were ever removed, a proxy variable reaching
+  nnp.service would defeat the deadline and the IP pinning (1.4 checks for
+  such variables once, the self-check does not).
 - Caddy's `file_server` follows symlinks and nnp owns `/var/lib/nnp`, so a
   compromised app could plant a link that serves Caddy's TLS key over
   HTTPS. Not prevented; the daily self-check DETECTS such links, so one can

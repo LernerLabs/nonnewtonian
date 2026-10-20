@@ -387,7 +387,11 @@ def fetch_photo(url: str, dest_dir: Path, *, session: requests.Session | None = 
     Each hop is validated AND its connection pinned to the vetted IP, so
     a rebinding hostname cannot slip an internal address in between the
     resolve-check and the socket connect."""
-    session = session or requests.Session()
+    if session is None:
+        session = requests.Session()
+        # Never route through HTTP(S)_PROXY from the environment: a proxy
+        # connection bypasses both the IP pinning and the deadline watchdog.
+        session.trust_env = False
     real_session = isinstance(session, requests.Session)  # tests inject fakes
     start = time.monotonic()
     too_slow = "That site was too slow to send the image."

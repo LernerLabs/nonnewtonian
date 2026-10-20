@@ -355,7 +355,7 @@ echo "local healthz: ok"
 if curl -fsS -m 10 -o /dev/null "$SITE/healthz"; then
     echo "public https: ok"
 else
-    echo "WARN: public https not up yet (DNS or certificate pending; rerun 'systemctl reload caddy' once dig resolves)"
+    echo "WARN: public https not up yet (DNS or certificate pending; rerun 'systemctl restart caddy' once dig resolves)"
 fi
 see "'local healthz: ok' and 'public https: ok'"
 

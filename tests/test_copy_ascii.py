@@ -46,6 +46,14 @@ def test_textbook_toc_data_is_ascii():
     assert not offenders, "Non-ASCII in textbook TOC data:\n" + "\n".join(offenders)
 
 
+def test_importer_source_is_ascii():
+    # The seed-import report prints correction strings from importer.py.
+    f = ROOT / "src/nonnewtonian/importer.py"
+    offenders = [f"importer.py:{i}: U+{ord(ch):04X}" for i, line in enumerate(f.read_text("utf-8").splitlines(), 1)
+                 for ch in line if ord(ch) > 127]
+    assert not offenders, "\n".join(offenders)
+
+
 def test_cli_source_is_ascii():
     # The CLI's messages are read in a terminal (often over SSH on the
     # server), where a stray em-dash renders badly.
