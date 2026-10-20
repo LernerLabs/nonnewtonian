@@ -4,8 +4,12 @@
 # not a backup. Run this on the server after the first successful backup, and
 # occasionally thereafter.
 #
-# Needs the same environment as nnp-backup.sh. For a manual run:
-#   set -a; . /etc/nnp-backup.env; set +a; ./nnp-restore-test.sh
+# Needs the same environment as nnp-backup.sh (root-only /etc/nnp-backup.env).
+# `sudo /opt/nnp/deploy/install.sh --enable-backups` runs it for you; for a
+# manual run:
+#   sudo bash -c 'set -a; . /etc/nnp-backup.env; set +a; exec /opt/nnp/deploy/backup/nnp-restore-test.sh'
+# It restores into a temp dir, so it needs free disk at least the size of the
+# backup (database + photos).
 set -euo pipefail
 
 : "${RESTIC_REPOSITORY:?set RESTIC_REPOSITORY}"
