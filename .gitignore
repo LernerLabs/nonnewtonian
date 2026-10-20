@@ -10,3 +10,5 @@ data/app.db-*
 data/photos/
 examples/.photo-cache/
 examples/screenshots/
+.DS_Store
+data/*.log
