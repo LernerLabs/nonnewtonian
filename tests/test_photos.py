@@ -261,6 +261,27 @@ class TestFetchPhoto:
         # It never actually requested the private host.
         assert session.requested == ["https://pub.example/a.jpg"]
 
+    @pytest.mark.parametrize("where", ["get", "body"])
+    def test_network_errors_become_photoerror(self, tmp_path, where):
+        """M7 review #16: requests exceptions are OSError subclasses, so
+        unwrapped they reached views_class's ENOSPC branch and a dead link
+        was reported as "the server could not store the file"."""
+        import requests
+
+        class Broken(_FakeResponse):
+            def iter_content(self, chunk_size=65536):
+                raise requests.exceptions.ChunkedEncodingError("reset")
+                yield  # pragma: no cover
+
+        class Session:
+            def get(self, url, **kwargs):
+                if where == "get":
+                    raise requests.exceptions.ConnectTimeout("slow connect")
+                return Broken(body=b"")
+
+        with pytest.raises(PhotoError, match="Could not download that link"):
+            self._fetch(Session(), "https://pub.example/a.jpg", tmp_path)
+
     def test_redirect_loop_bounded(self, tmp_path):
         session = _FakeSession(
             {

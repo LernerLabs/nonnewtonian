@@ -174,6 +174,28 @@ def test_photo_oserror_after_submit_is_warning(class_app, monkeypatch):
     assert conn.execute("SELECT count(*) FROM photos").fetchone()[0] == 0
 
 
+def test_unreachable_photo_url_is_blamed_on_the_link(class_app, monkeypatch):
+    """M7 review #16: a dead link must not read as our storage failure."""
+    import requests
+
+    class DeadSession:
+        def get(self, url, **kwargs):
+            raise requests.exceptions.ConnectTimeout("host down")
+
+    real_fetch = views_class.fetch_photo
+    monkeypatch.setattr(views_class, "fetch_photo",
+                        lambda url, d: real_fetch(url, d, session=DeadSession(),
+                                                  resolver=_resolver))
+    r = class_app.test_client().post(
+        f"/c/{class_app._slug}/submit",
+        data={"scientist_name": "Lise Meitner", "chapter": "3",
+              "description": "Explained nuclear fission.", "license_grant": "1",
+              "form_ts": "0", "photo_url": "https://pub.example/m.jpg"})
+    assert r.status_code == 200 and b"Thanks" in r.data
+    assert b"Could not download that link" in r.data
+    assert b"could not store the file" not in r.data
+
+
 # --- photo fetch total deadline ---------------------------------------------------
 
 class _TrickleResponse:
@@ -197,13 +219,85 @@ def _resolver(host, port):
 
 
 def test_fetch_deadline(tmp_path, monkeypatch):
-    # Each 1-byte chunk "takes" one second: every per-read timeout is
-    # satisfied, but the total must stop at FETCH_DEADLINE.
+    # Injected-session path only: each 1-byte chunk "takes" one second.
+    # This fake ignores chunk_size, so it cannot show the real blocking
+    # behaviour; test_fetch_deadline_real_stack below does (M7 review #1).
     clock = iter(range(0, 10_000))
     monkeypatch.setattr(photos.time, "monotonic", lambda: float(next(clock)))
     with pytest.raises(photos.PhotoError, match="too slow"):
         photos.fetch_photo("https://pub.example/a.jpg", tmp_path,
                            session=_TrickleSession(), resolver=_resolver)
+    assert not list(tmp_path.rglob("*.*"))
+
+
+def _trickle_server(monkeypatch, *, head_gap, body_gap, give_up_after=6.0):
+    """Route the real requests/urllib3 stack (with pinning) to one end of
+    a socketpair -- the sandbox forbids listening sockets -- and have a
+    thread on the other end send a 200 head (1 byte per `head_gap` s, or
+    all at once if 0) and then a 1 MB body (1 byte per `body_gap` s).
+    Each recv gets a byte well inside FETCH_TIMEOUT, so only a total
+    deadline can stop it.  The server gives up after `give_up_after` s so
+    the old code fails rather than hangs."""
+    import socket
+    import threading
+    import urllib3.util.connection as u3conn
+
+    head = b"HTTP/1.1 200 OK\r\nContent-Length: 1000000\r\n\r\n"
+    dialed = []
+    ours, theirs = socket.socketpair()
+
+    def fake_create_connection(address, *a, **k):
+        dialed.append(address)
+        return ours
+
+    monkeypatch.setattr(u3conn, "create_connection", fake_create_connection)
+    # requests honours *_PROXY from the environment (sandboxes set them);
+    # through a proxy neither the pin nor this fake would be in the path.
+    for var in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+        monkeypatch.delenv(var, raising=False)
+        monkeypatch.delenv(var.lower(), raising=False)
+
+    def serve():
+        stop = time.monotonic() + give_up_after
+        try:
+            theirs.recv(65536)  # the request
+            if head_gap:
+                for byte in head:
+                    if time.monotonic() > stop:
+                        return
+                    theirs.sendall(bytes([byte]))
+                    time.sleep(head_gap)
+            else:
+                theirs.sendall(head)
+            while time.monotonic() < stop:
+                theirs.sendall(b"\xff")
+                time.sleep(body_gap)
+        except OSError:  # our end was shut down: the fix worked
+            return
+        finally:
+            theirs.close()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    return dialed, thread
+
+
+@pytest.mark.parametrize("head_gap", [0, 0.05], ids=["body-trickle", "header-trickle"])
+def test_fetch_deadline_real_stack(tmp_path, monkeypatch, head_gap):
+    """A server trickling 1 byte per 0.05 s, in the body (urllib3 2.x
+    blocks in stream() until it has a whole 64 KiB chunk) or in the
+    status line/headers (read before any chunk loop), must be cut off at
+    FETCH_DEADLINE.  Before the M7 review #1 fix this ran until the
+    server gave up and then failed as a broken download, not "too slow"."""
+    monkeypatch.setattr(photos, "FETCH_DEADLINE", 0.5)
+    dialed, thread = _trickle_server(monkeypatch, head_gap=head_gap, body_gap=0.05)
+    t0 = time.monotonic()
+    with pytest.raises(photos.PhotoError, match="too slow"):
+        photos.fetch_photo("http://pub.example/a.jpg", tmp_path, resolver=_resolver)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 0.5 + 1.5, elapsed
+    assert dialed == [("93.184.216.34", 80)]  # pinned to the vetted IP
+    thread.join(timeout=10)
     assert not list(tmp_path.rglob("*.*"))
 
 

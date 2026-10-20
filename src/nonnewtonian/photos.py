@@ -25,6 +25,7 @@ connect to the address we already vetted.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import io
 import ipaddress
 import os
@@ -36,6 +37,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
+import urllib3
 from PIL import Image
 
 # A generous ceiling for legitimate portraits; a hard error beyond it.
@@ -211,28 +213,39 @@ def store_bytes(data: bytes, dest_dir: Path, *, original_url: str | None = None)
     )
 
 
-def _pin_session_to_ip(session: requests.Session, host: str, ip: str) -> None:
+def _pin_session_to_ip(session: requests.Session, host: str, ip: str,
+                       on_connect=None) -> None:
     """Mount an adapter that dials the vetted IP for `host` while keeping
     the hostname for the Host header and TLS SNI/verification.  urllib3's
     ``_dns_host`` is the exact seam for this: the connection resolves and
     connects to ``_dns_host`` but presents ``host`` to TLS.  This closes
     the DNS-rebinding TOCTOU: even if the name re-resolves to a private
-    address at connect time, we connect to the address we already vetted."""
+    address at connect time, we connect to the address we already vetted.
+
+    ``on_connect(sock)`` is called with each raw TCP socket as soon as it
+    is connected (before TLS, before the request is sent), so
+    ``fetch_photo``'s deadline watchdog can shut it down."""
     from urllib3 import PoolManager
     from urllib3.connection import HTTPConnection, HTTPSConnection
     from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 
-    class _PinHTTP(HTTPConnection):
+    class _Pin:
         def __init__(self, *a, **k):
             super().__init__(*a, **k)
             if self.host == host:
                 self._dns_host = ip
 
-    class _PinHTTPS(HTTPSConnection):
-        def __init__(self, *a, **k):
-            super().__init__(*a, **k)
-            if self.host == host:
-                self._dns_host = ip
+        def _new_conn(self):
+            sock = super()._new_conn()
+            if on_connect is not None:
+                on_connect(sock)
+            return sock
+
+    class _PinHTTP(_Pin, HTTPConnection):
+        pass
+
+    class _PinHTTPS(_Pin, HTTPSConnection):
+        pass
 
     class _PinHTTPPool(HTTPConnectionPool):
         ConnectionCls = _PinHTTP
@@ -251,6 +264,58 @@ def _pin_session_to_ip(session: requests.Session, host: str, ip: str) -> None:
     session.mount(f"https://{host}", adapter)
 
 
+class _Deadline:
+    """A total wall-clock deadline that interrupts blocked socket reads.
+
+    FETCH_TIMEOUT bounds each connect/recv, but it restarts on every
+    byte: a server that trickles a byte every few seconds never trips
+    it, and urllib3 2.x's ``stream(amt)`` blocks until it has ``amt``
+    bytes, so a check between chunks is never reached either (M7 review
+    #1).  Instead a timer thread shuts down every socket this fetch
+    opened when the deadline passes; the blocked recv (status line,
+    headers, or body) then returns at once and the fetch fails as "too
+    slow".  shutdown(), not close(): close() from another thread does
+    not wake a recv blocked on that socket.
+
+    Not covered: the getaddrinfo() lookups in validate_url, which Python
+    cannot interrupt; they are bounded by the system resolver's own
+    timeout and attempts (resolv.conf), not by FETCH_DEADLINE."""
+
+    def __init__(self, seconds: float):
+        self._lock = threading.Lock()
+        self._sockets: list[socket.socket] = []
+        self.expired = threading.Event()
+        self._timer = threading.Timer(seconds, self._expire)
+        self._timer.daemon = True
+
+    @staticmethod
+    def _shut(sock):
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:  # already closed (fd is -1 then, so no fd-reuse hazard)
+            pass
+
+    def register(self, sock):
+        with self._lock:
+            self._sockets.append(sock)
+            if self.expired.is_set():
+                self._shut(sock)
+
+    def _expire(self):
+        with self._lock:
+            self.expired.set()
+            for sock in self._sockets:
+                self._shut(sock)
+
+    def __enter__(self):
+        self._timer.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._timer.cancel()
+        return False
+
+
 def fetch_photo(url: str, dest_dir: Path, *, session: requests.Session | None = None,
                 resolver=socket.getaddrinfo) -> StoredPhoto:
     """Fetch, validate, normalize, and store one remote photo.
@@ -261,18 +326,42 @@ def fetch_photo(url: str, dest_dir: Path, *, session: requests.Session | None = 
     session = session or requests.Session()
     real_session = isinstance(session, requests.Session)  # tests inject fakes
     start = time.monotonic()
+    too_slow = "That site was too slow to send the image."
 
-    def _check():
-        # FETCH_TIMEOUT bounds each connect/read; a server that trickles a
-        # byte every few seconds would never trip it.  This bounds the total.
-        if time.monotonic() - start > FETCH_DEADLINE:
-            raise PhotoError("That site was too slow to send the image.")
+    with _Deadline(FETCH_DEADLINE) as deadline:
 
+        def _check():
+            # The watchdog does the real work for real sockets.  This also
+            # covers injected sessions, and a body that "ended" early
+            # because the watchdog shut the socket (no Content-Length).
+            if deadline.expired.is_set() or time.monotonic() - start > FETCH_DEADLINE:
+                raise PhotoError(too_slow)
+
+        try:
+            data = _download(url, session, real_session, resolver, deadline, _check)
+        except (OSError, urllib3.exceptions.HTTPError, http.client.HTTPException) as exc:
+            # Every requests exception is an OSError subclass; the urllib3
+            # and http.client bases cover paths requests does not wrap.
+            # Unwrapped, views_class reported an unreachable link as "the
+            # server could not store the file" (M7 review #16).
+            if deadline.expired.is_set():
+                raise PhotoError(too_slow) from None
+            raise PhotoError(
+                "Could not download that link; check that it opens in a browser."
+            ) from exc
+        finally:
+            if real_session:
+                session.close()
+        _check()
+    return store_bytes(data, dest_dir, original_url=url)
+
+
+def _download(url, session, real_session, resolver, deadline, _check) -> bytes:
     current = url
     for _ in range(MAX_REDIRECTS + 1):
         host, _port, ip = validate_url(current, resolver=resolver)
         if real_session:
-            _pin_session_to_ip(session, host, ip)
+            _pin_session_to_ip(session, host, ip, on_connect=deadline.register)
         response = session.get(
             current, stream=True, timeout=FETCH_TIMEOUT, allow_redirects=False
         )
@@ -295,7 +384,7 @@ def fetch_photo(url: str, dest_dir: Path, *, session: requests.Session | None = 
                 raise PhotoError(
                     f"That image is larger than {MAX_BYTES // (1024 * 1024)} MB."
                 )
-        return store_bytes(data, dest_dir, original_url=url)
+        return data
     raise PhotoError("Too many redirects.")
 
 
