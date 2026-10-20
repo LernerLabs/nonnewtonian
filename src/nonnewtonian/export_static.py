@@ -42,8 +42,9 @@ _DOWN_HTML = _PKG.parents[1] / "deploy" / "caddy" / "down.html"
 
 STATIC_PAGES = ["/", "/scientists", "/textbooks", "/wanted", "/about", "/for-teachers",
                 "/for-students", "/privacy"]
-# Same shape the Caddyfile serves; anything else under /photos/ is refused.
-_PHOTO_RE = re.compile(r"^[0-9a-f]{2}/[0-9a-f]{64}\.(jpg|png|gif|webp)$")
+# Same shape deploy/caddy/Caddyfile serves (normalize_image writes only
+# .jpg or .png); anything else under /photos/ is refused.
+_PHOTO_RE = re.compile(r"^[0-9a-f]{2}/[0-9a-f]{64}\.(jpg|png)$")
 _ATTR_RE = re.compile(r'\b(href|src|action)="([^"]*)"')
 # "/recover/" with the slash: the bare /recover form holds no token and is a
 # legitimate live-site link; /recover/confirm/<signed> never belongs in an export.
@@ -142,18 +143,30 @@ def _entries_csv(entries) -> bytes:
     return buf.getvalue().encode("utf-8")
 
 
-def _forbidden_strings(conn, config, public_entries) -> list[tuple[str, str]]:
-    """(needle, label) pairs that must not appear in any exported text.
-    Labels never include the secret itself."""
-    needles = [("csrf_token", "a CSRF token field")]
+def _forbidden_patterns(conn, config, public_entries) -> list[tuple[re.Pattern, str]]:
+    """(pattern, label) pairs that must not match any exported text
+    (lowercased). Labels never include the secret itself. Secrets and slugs
+    match as raw substrings; free-text values people type (teacher emails,
+    contributor names) match as whole words only, so 'Mark' does not hit
+    'marked'. Lookarounds rather than \\b so a value that starts or ends
+    with a non-word character ('Jr.') still matches. Accepted: a hidden
+    one-word name that is also a whole word in public text (an anonymous
+    'Grace' beside 'Grace Hopper') still stops the export; that fails
+    closed, and the error names the entry id to fix."""
+    raw = [("csrf_token", "a CSRF token field")]
     for key in ("ADMIN_TOKEN", "SECRET_KEY"):
         if config.get(key):
-            needles.append((str(config[key]), f"the {key}"))
+            raw.append((str(config[key]), f"the {key}"))
     for (slug,) in conn.execute("SELECT slug FROM collections"):
-        needles.append((slug, "a class slug"))
-    for (email,) in conn.execute(
-            "SELECT teacher_email FROM collections WHERE teacher_email IS NOT NULL"):
-        needles.append((email, "a teacher email"))
+        raw.append((slug, "a class slug"))
+    words = []
+    # Only values with an '@': /new now rejects anything else, but an older
+    # junk value like 'e' would match every page and stop every export.
+    # Such a non-address goes unchecked here (no public template renders
+    # teacher_email at all).
+    for cid, email in conn.execute(
+            "SELECT id, teacher_email FROM collections WHERE teacher_email LIKE '%@%'"):
+        words.append((email, f"the teacher email of collection {cid}"))
     # A credit shown publicly by design (a full-mode name, or a one-word
     # first_initial name, which displays as itself) is not a leak.
     shown = {e.displayed_credit() for e in public_entries} - {None}
@@ -161,8 +174,10 @@ def _forbidden_strings(conn, config, public_entries) -> list[tuple[str, str]]:
             "SELECT id, contributor_name FROM entries WHERE attribution_mode != 'full' "
             "AND contributor_name IS NOT NULL AND length(contributor_name) >= 4"):
         if name not in shown:
-            needles.append((name, f"the contributor name of entry {eid} (not full attribution)"))
-    return [(n.lower(), label) for n, label in needles]
+            words.append((name, f"the contributor name of entry {eid} (not full attribution)"))
+    return ([(re.compile(re.escape(n.lower())), label) for n, label in raw]
+            + [(re.compile(r"(?<!\w)" + re.escape(n.lower()) + r"(?!\w)"), label)
+               for n, label in words])
 
 
 def _texts(path: Path, rel: str):
@@ -176,7 +191,7 @@ def _texts(path: Path, rel: str):
         yield rel, path.read_text("utf-8").lower()
 
 
-def _leak_guard(tmp: Path, expected: set[str], slugs: set[str], needles, site_url: str) -> None:
+def _leak_guard(tmp: Path, expected: set[str], slugs: set[str], patterns, site_url: str) -> None:
     actual = {p.relative_to(tmp).as_posix() for p in tmp.rglob("*") if not p.is_dir()}
     if actual != expected:
         raise ExportError(f"leak guard: unexpected files {sorted(actual - expected)[:5]}, "
@@ -186,9 +201,11 @@ def _leak_guard(tmp: Path, expected: set[str], slugs: set[str], needles, site_ur
         raise ExportError("leak guard: scientist directories differ from the approved slug set")
     for rel in sorted(actual):
         for where, text in _texts(tmp / rel, rel):
-            for needle, label in needles:
-                # Jinja autoescapes ' and & in HTML, so check the escaped form too.
-                if needle in text or html.escape(needle, quote=True) in text:
+            # Jinja writes ' as &#39; and XML may use &apos;: match against
+            # the entity-decoded text too, not one escaper's spelling.
+            decoded = html.unescape(text)
+            for pat, label in patterns:
+                if pat.search(text) or pat.search(decoded):
                     raise ExportError(f"leak guard: {where} contains {label}")
             if rel.endswith(".html"):
                 page_dir = posixpath.dirname(rel)
@@ -221,7 +238,7 @@ def export_site(db_path, photo_dir, out_dir, site_url: str) -> ExportReport:
         slugs = sorted(e.slug for e in scientists)
         entries = [w for s in slugs for w in q.approved_entries_by_slug(conn, s)]
         tb_slugs = [t["slug"] for t in q.public_textbooks(conn)]
-        needles = _forbidden_strings(conn, app.config, entries)
+        patterns = _forbidden_patterns(conn, app.config, entries)
     finally:
         conn.close()
 
@@ -275,7 +292,7 @@ def export_site(db_path, photo_dir, out_dir, site_url: str) -> ExportReport:
             dest = tmp / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
-        _leak_guard(tmp, set(files), set(slugs), needles, site_url)
+        _leak_guard(tmp, set(files), set(slugs), patterns, site_url)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise

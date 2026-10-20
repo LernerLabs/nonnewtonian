@@ -311,3 +311,62 @@ def test_slide_notes_use_displayed_credit(site):
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         notes = "".join(z.read(n).decode() for n in z.namelist() if "notesSlide" in n)
     assert "Yolanda S." in notes and SHARED_STUDENT not in notes
+
+
+def _add_hidden_contributor(db_path, name, slug="hidden-contrib", status="pending"):
+    conn = db_mod.connect(db_path)
+    conn.execute(
+        "INSERT INTO entries(collection_id,scientist_name,scientist_slug,description,status,"
+        "communal_status,contributor_name,attribution_mode,created_at,updated_at) "
+        "VALUES(NULL,'Hidden Contrib',?,'x',?,?,?,'anonymous',?,?)",
+        (slug, status, status, name, NOW, NOW))
+    conn.commit()
+    conn.close()
+
+
+def test_short_hidden_name_that_is_a_word_prefix_does_not_stop_export(site):
+    # M7 review #10: 'Mark' used to match the footer's "some are marked".
+    _add_hidden_contributor(site["db"], "Mark")
+    assert "marked" in site["client"].get("/about").get_data(as_text=True)
+    _export(site)
+    assert (site["out"] / "about" / "index.html").is_file()
+
+
+def test_hidden_name_as_a_whole_word_still_trips_the_guard(site, monkeypatch):
+    _add_hidden_contributor(site["db"], "Mark")
+    from nonnewtonian.web import views_public
+    real = views_public.render_template
+    monkeypatch.setattr(views_public, "render_template",
+                        lambda *a, **kw: real(*a, **kw) + "<p>by Mark.</p>")
+    with pytest.raises(ex.ExportError, match="contributor name of entry"):
+        _export(site)
+
+
+def test_leak_guard_catches_an_apostrophe_name_as_jinja_escapes_it(site, monkeypatch):
+    # M7 review #29: Jinja writes ' as &#39;, which html.escape spells &#x27;.
+    from markupsafe import escape
+    _add_hidden_contributor(site["db"], "Sean O'Brien")
+    from nonnewtonian.web import views_public
+    real = views_public.render_template
+    monkeypatch.setattr(views_public, "render_template",
+                        lambda *a, **kw: real(*a, **kw) + str(escape("Sean O'Brien")))
+    with pytest.raises(ex.ExportError, match="contributor name of entry"):
+        _export(site)
+
+
+def test_junk_teacher_email_already_in_the_db_does_not_stop_export(site):
+    # M7 review #12: a pre-validation 'e' used to match every page.
+    conn = db_mod.connect(site["db"])
+    conn.execute("UPDATE collections SET teacher_email='e'")
+    conn.commit()
+    conn.close()
+    _export(site)
+
+
+def test_leak_guard_names_the_collection_of_a_leaked_teacher_email(site, monkeypatch):
+    from nonnewtonian.web import views_public
+    real = views_public.render_template
+    monkeypatch.setattr(views_public, "render_template",
+                        lambda *a, **kw: real(*a, **kw) + TEACHER_EMAIL)
+    with pytest.raises(ex.ExportError, match=r"teacher email of collection \d+"):
+        _export(site)
