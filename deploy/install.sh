@@ -143,9 +143,9 @@ swapon --show
 sysctl vm.swappiness
 see "a swap line (e.g. /swapfile file 1024M) and vm.swappiness = 10"
 
-step "2/9 packages"
+step "2/9 packages, unattended upgrades, journald"
 apt-get update -q
-apt-get install -y -q python3-venv git sqlite3 restic curl
+apt-get install -y -q python3-venv git sqlite3 restic curl unattended-upgrades
 if ! apt-cache policy caddy | grep -q dl.cloudsmith.io; then
     # Official Caddy apt repo, from https://caddyserver.com/docs/install
     # ("Debian, Ubuntu, Raspbian" -> stable). Written from memory where no
@@ -160,7 +160,15 @@ if ! apt-cache policy caddy | grep -q dl.cloudsmith.io; then
 fi
 apt-get install -y -q caddy
 caddy version
-see "no apt errors and a Caddy version line (v2.x)"
+install -m 644 "$REPO/deploy/system/52nnp-unattended-upgrades" /etc/apt/apt.conf.d/52nnp-unattended-upgrades
+install -d -m 755 /etc/systemd/journald.conf.d
+install -m 644 "$REPO/deploy/system/journald-nnp.conf" /etc/systemd/journald.conf.d/nnp.conf
+systemctl restart systemd-journald
+apt-config dump | grep -e '^Unattended-Upgrade::Automatic-Reboot' -e '^APT::Periodic::Unattended-Upgrade' \
+    || echo "WARN: apt-config shows no unattended-upgrade settings"
+systemd-analyze cat-config systemd/journald.conf | grep -e '^SystemMaxUse' -e '^MaxRetentionSec' \
+    || echo "WARN: journald shows no nnp limits"
+see "no apt errors, a Caddy version line (v2.x), Automatic-Reboot \"true\" / Automatic-Reboot-Time \"05:30\" / Unattended-Upgrade \"1\", and SystemMaxUse=200M / MaxRetentionSec=1month"
 
 step "3/9 user and directories"
 id nnp >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/nnp --shell /usr/sbin/nologin nnp
