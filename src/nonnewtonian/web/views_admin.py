@@ -16,7 +16,7 @@ from flask import (
 
 from .. import collections_repo as repo
 from . import queries as q
-from .views_manage import _safe_unlink
+from .views_manage import _abs, _safe_unlink, _self_mailto
 
 bp = Blueprint("admin", __name__)
 
@@ -59,10 +59,30 @@ def dashboard(token):
     published = [q._row_to_entry(conn, r) for r in conn.execute(
         "SELECT * FROM entries WHERE collection_id IS NULL AND communal_status='approved' "
         "ORDER BY scientist_name COLLATE NOCASE")]
+    classes = conn.execute(
+        "SELECT c.id, c.name, c.slug, c.teacher_email, c.created_at, "
+        "(SELECT count(*) FROM entries e WHERE e.collection_id=c.id) AS n "
+        "FROM collections c ORDER BY c.created_at DESC").fetchall()
     return render_template(
         "admin.html", token=token, pending=pending_entries,
         approved_count=approved_count, shared=shared_entries, published=published,
+        classes=classes, took_down=request.args.get("took_down", type=int),
     )
+
+
+def _delete_entry_and_orphan_photos(conn, entry_id: int) -> None:
+    """Delete one entry (cascading its placements/photos rows) and unlink
+    any photo file no surviving row references. Photos are content-
+    addressed and shared (a communal clone points at its source's file),
+    so the refcount runs AFTER the DELETE."""
+    photo_dir = Path(current_app.config["PHOTO_DIR"]).resolve()
+    paths = {r["file_path"] for r in conn.execute(
+        "SELECT file_path FROM photos WHERE entry_id=? AND file_path IS NOT NULL", (entry_id,))}
+    conn.execute("DELETE FROM entries WHERE id=?", (entry_id,))
+    for p in paths:
+        if not conn.execute("SELECT 1 FROM photos WHERE file_path=? LIMIT 1", (p,)).fetchone():
+            _safe_unlink(photo_dir, p)
+    conn.commit()
 
 
 @bp.route("/admin/<token>/communal/<int:entry_id>/delete", methods=["POST"])
@@ -78,15 +98,47 @@ def delete_communal(token, entry_id):
     ).fetchone()
     if not row:
         abort(404)
-    photo_dir = Path(current_app.config["PHOTO_DIR"]).resolve()
-    paths = {r["file_path"] for r in conn.execute(
-        "SELECT file_path FROM photos WHERE entry_id=? AND file_path IS NOT NULL", (entry_id,))}
-    conn.execute("DELETE FROM entries WHERE id=?", (entry_id,))
-    for p in paths:
-        if not conn.execute("SELECT 1 FROM photos WHERE file_path=? LIMIT 1", (p,)).fetchone():
-            _safe_unlink(photo_dir, p)
-    conn.commit()
+    _delete_entry_and_orphan_photos(conn, entry_id)
     return redirect(url_for("admin.dashboard", token=token))
+
+
+@bp.route("/admin/<token>/takedown", methods=["POST"])
+def takedown(token):
+    """Take down ANY entry by id, class or communal (M7). The id is in
+    every slide URL (/c/<slug>/entry/<id>/slide.pptx), so a complaint
+    about a student's name on a class page no longer needs hand SQL.
+    A communal clone is a separate entry: taking down a class entry does
+    not remove its public copy (take that down by its own id)."""
+    _check_token(token)
+    entry_id = request.form.get("entry_id", type=int)
+    conn = _db()
+    if entry_id is None or not conn.execute(
+            "SELECT 1 FROM entries WHERE id=?", (entry_id,)).fetchone():
+        abort(404)
+    _delete_entry_and_orphan_photos(conn, entry_id)
+    return redirect(url_for("admin.dashboard", token=token, took_down=entry_id))
+
+
+@bp.route("/admin/<token>/collections/<int:cid>/reissue", methods=["POST"])
+def reissue(token, cid):
+    """Mint a fresh manage link for a class whose teacher lost theirs, with
+    no SMTP needed (M7). The old link dies at once. The new token is shown
+    once on the response page and never logged or stored in readable form."""
+    _check_token(token)
+    conn = _db()
+    coll = conn.execute("SELECT * FROM collections WHERE id=?", (cid,)).fetchone()
+    if coll is None:
+        abort(404)
+    t = repo.reissue_manage_token(conn, cid)
+    if t is None:  # row vanished between the SELECT and the UPDATE
+        abort(404)
+    manage_url = _abs(url_for("manage.dashboard", token=t))
+    welcome_url = _abs(url_for("manage.welcome", token=t))
+    student_url = _abs(url_for("cls.submit", slug=coll["slug"]))
+    return render_template(
+        "admin_reissued.html", token=token, coll=coll, manage_url=manage_url,
+        welcome_url=welcome_url, teacher_email=coll["teacher_email"],
+        mailto=_self_mailto(coll, student_url, manage_url))
 
 
 @bp.route("/admin/<token>/shared/<int:entry_id>/<action>", methods=["POST"])

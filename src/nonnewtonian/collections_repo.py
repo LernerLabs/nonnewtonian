@@ -77,6 +77,22 @@ def collection_by_manage_token(conn, token: str):
     return row
 
 
+def reissue_manage_token(conn, collection_id: int, *, expected_hash: str | None = None) -> str | None:
+    """Mint a new manage token and store only its hash; the old link dies
+    at once. With expected_hash, a compare-and-swap: returns None if the
+    stored hash no longer matches (link already used)."""
+    token = tokens.new_token()
+    if expected_hash is None:
+        cur = conn.execute("UPDATE collections SET manage_token_hash=? WHERE id=?",
+                           (tokens.hash_token(token), collection_id))
+    else:
+        cur = conn.execute(
+            "UPDATE collections SET manage_token_hash=? WHERE id=? AND manage_token_hash=?",
+            (tokens.hash_token(token), collection_id, expected_hash))
+    conn.commit()
+    return token if cur.rowcount == 1 else None
+
+
 def collection_by_slug(conn, slug: str):
     return conn.execute("SELECT * FROM collections WHERE slug=?", (slug,)).fetchone()
 
