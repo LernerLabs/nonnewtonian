@@ -193,8 +193,9 @@ def _production_checks(app: Flask) -> list[str]:
     db_path = Path(cfg["DB_PATH"])
     # Checked BEFORE connecting: sqlite3.connect silently creates an empty file.
     if not db_path.exists():
-        problems.append(f"database missing at {db_path}; seed it on the laptop and upload, "
-                        f"or run: nonnewtonian migrate --db {db_path}")
+        problems.append(f"database missing at {db_path}; seed it on the laptop, upload it "
+                        "there, and rerun: sudo /opt/nnp/deploy/install.sh "
+                        "(it sets owner and mode 0600, then migrates)")
         return problems
     if db_path.stat().st_mode & 0o077:
         problems.append("database must be mode 0600 (caddy is in group nnp)")
@@ -205,5 +206,5 @@ def _production_checks(app: Flask) -> list[str]:
         conn.close()
     if pending:
         problems.append(f"pending migrations {', '.join(pending)}; "
-                        f"run: nonnewtonian migrate --db {db_path}")
+                        f"run: sudo /opt/nnp/deploy/nnp-cli migrate --db {db_path}")
     return problems

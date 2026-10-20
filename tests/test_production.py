@@ -101,7 +101,10 @@ def test_missing_db_fails_without_creating_it(tmp_path):
     missing = tmp_path / "nope.db"
     msg = _preflight_error(_prod_config(tmp_path, DB_PATH=str(missing)))
     assert f"database missing at {missing}" in msg
-    assert "nonnewtonian migrate --db" in msg
+    # M7 review #32/#35: point at the real procedure, not a bare migrate
+    # that would make an empty, wrongly-moded DB.
+    assert "rerun: sudo /opt/nnp/deploy/install.sh" in msg
+    assert "migrate --db" not in msg
     assert not missing.exists()  # sqlite3.connect would have created it
 
 
@@ -118,7 +121,9 @@ def test_pending_migrations_fail(tmp_path):
     conn.commit()
     conn.close()
     last = db_mod.migration_files()[-1].name
-    assert f"pending migrations {last}" in _preflight_error(cfg)
+    msg = _preflight_error(cfg)
+    assert f"pending migrations {last}" in msg
+    assert f"sudo /opt/nnp/deploy/nnp-cli migrate --db {cfg['DB_PATH']}" in msg
 
 
 def test_no_migrations_found_fails(tmp_path, monkeypatch):

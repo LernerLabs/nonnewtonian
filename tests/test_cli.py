@@ -6,7 +6,7 @@ from nonnewtonian import db as db_mod
 
 def test_migrate_applies_on_fresh_file_and_is_idempotent(tmp_path, capsys):
     db_path = tmp_path / "x.db"
-    assert cli.main(["migrate", "--db", str(db_path)]) == 0
+    assert cli.main(["migrate", "--db", str(db_path), "--create"]) == 0
     first = capsys.readouterr().out
     assert first.startswith("applied: ")
     conn = db_mod.connect(db_path)
@@ -60,3 +60,27 @@ def test_seed_import_defaults_match_the_app(monkeypatch):
     args = cli.build_parser().parse_args(["seed-import"])
     assert args.db == "data/app.db"
     assert args.photo_dir == "data/photos"
+
+
+def test_migrate_refuses_missing_db_without_create(tmp_path, capsys):
+    # M7 review #32: a bare migrate used to create an empty DB with the
+    # umask's mode (0640 under nnp-cli), which the preflight then rejects.
+    db_path = tmp_path / "missing.db"
+    assert cli.main(["migrate", "--db", str(db_path)]) == 1
+    out = capsys.readouterr().out
+    assert "database missing" in out and "--create" in out and "install.sh" in out
+    assert not db_path.exists()
+
+
+def test_migrate_create_makes_a_0600_db_even_under_a_loose_umask(tmp_path):
+    import os
+    db_path = tmp_path / "new.db"
+    old = os.umask(0o022)
+    try:
+        assert cli.main(["migrate", "--db", str(db_path), "--create"]) == 0
+    finally:
+        os.umask(old)
+    assert db_path.stat().st_mode & 0o777 == 0o600
+    conn = db_mod.connect(db_path)
+    assert db_mod.pending_migrations(conn) == []
+    conn.close()

@@ -114,6 +114,14 @@ def cmd_migrate(args: argparse.Namespace) -> int:
             return 1
         print("up to date")
         return 0
+    if not Path(args.db).exists():
+        # sqlite3.connect would silently create it (a --db typo makes an
+        # empty DB) with the umask's mode, which the preflight rejects.
+        if not args.create:
+            print(f"database missing at {args.db}; pass --create for a new EMPTY one "
+                  "(production: upload the seeded DB and rerun install.sh)")
+            return 1
+        os.close(os.open(args.db, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
     now = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat()
     conn = db_mod.connect(args.db)
     applied = db_mod.migrate(conn, now=now)
@@ -159,6 +167,8 @@ def build_parser() -> argparse.ArgumentParser:
     mig.add_argument("--db", required=True, help="SQLite database path")
     mig.add_argument("--check", action="store_true",
                      help="only list pending migrations; exit 1 if any")
+    mig.add_argument("--create", action="store_true",
+                     help="create the DB (mode 0600, empty schema) if it is missing")
     mig.set_defaults(func=cmd_migrate)
 
     exp = sub.add_parser("export-static", help="render the public communal site to a directory")
