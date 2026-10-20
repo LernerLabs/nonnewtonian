@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Manage link re-issued - {{ site_name }}{% endblock %}
+{% block content %}
+  <h1>New manage link for "{{ coll.name }}"</h1>
+  <p class="linkbox warn"><strong>Shown once. The old link is already dead. Send this only to the person
+    you verified owns the class.</strong> It is not stored in readable form; if you lose it, re-issue again.</p>
+
+  <div class="linkbox warn">
+    <h2>Management link</h2>
+    <div class="copyrow">
+      <input readonly value="{{ manage_url }}" id="manage-url">
+      <button type="button" data-copy="manage-url">Copy</button>
+    </div>
+    <p class="small">Welcome page (both links plus a class kit download): {{ welcome_url }}</p>
+    <p class="small">Teacher email on file: {{ teacher_email or "(none recorded)" }}</p>
+    {% if teacher_email %}
+      <p class="actions"><a class="btn" href="{{ mailto }}">Email the links to {{ teacher_email }}</a></p>
+    {% endif %}
+  </div>
+
+  <p class="actions"><a class="btn" href="{{ url_for('admin.dashboard', token=token) }}">&lt;- Back to admin</a></p>
+
+  <script>
+    document.querySelectorAll('[data-copy]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var el = document.getElementById(b.dataset.copy);
+        el.select(); navigator.clipboard.writeText(el.value);
+        var t = b.textContent; b.textContent = 'Copied!';
+        setTimeout(function () { b.textContent = t; }, 1200);
+      });
+    });
+  </script>
+{% endblock %}

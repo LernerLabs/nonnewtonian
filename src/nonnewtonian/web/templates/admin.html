@@ -2,6 +2,7 @@
 {% from "_macros.html" import entry_card %}
 {% block title %}Admin - {{ site_name }}{% endblock %}
 {% block content %}
+  {% if took_down %}<p class="linkbox warn">Entry {{ took_down }} taken down.</p>{% endif %}
   <h1>Communal moderation queue</h1>
   <p class="muted">{{ pending|length }} entries awaiting review | {{ approved_count }} approved and live.</p>
 
@@ -71,4 +72,56 @@
       </div>
     {% endfor %}
   </details>
+
+  <h2>Take down any entry</h2>
+  <p class="muted">Removes one entry, class or communal, by its id, and reclaims its photo files if
+    nothing else uses them. The id is in every slide URL: /c/&lt;slug&gt;/entry/<strong>&lt;id&gt;</strong>/slide.pptx.
+    A class entry shared to the communal site has a separate communal copy with its own id.</p>
+  <form class="inline" method="post" action="{{ url_for('admin.takedown', token=token) }}"
+        onsubmit="return confirm('Take down entry ' + this.entry_id.value + '? This cannot be undone.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Entry id <input name="entry_id" type="number" min="1" required></label>
+    <button type="submit" class="danger">Take down</button>
+  </form>
+
+  <h2>Classes</h2>
+  {% if not classes %}
+    <p class="muted">No classes yet.</p>
+  {% else %}
+    <p class="muted">{{ classes|length }} classes. Re-issue a manage link ONLY after you have verified the
+      request comes from the class's teacher (the stored email, or by phone); the click kills the old link.</p>
+    <div style="overflow-x:auto">
+      <table style="border-collapse:collapse">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:.3rem .6rem">Name</th>
+            <th style="text-align:left;padding:.3rem .6rem">Slug</th>
+            <th style="text-align:left;padding:.3rem .6rem">Teacher email</th>
+            <th style="text-align:left;padding:.3rem .6rem">Created</th>
+            <th style="text-align:right;padding:.3rem .6rem">Entries</th>
+            <th style="padding:.3rem .6rem"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in classes %}
+            <tr style="border-top:1px solid var(--rule)">
+              <td style="padding:.3rem .6rem">{{ c.name }}</td>
+              <td style="padding:.3rem .6rem"><a href="{{ url_for('cls.page', slug=c.slug) }}">{{ c.slug }}</a></td>
+              <td style="padding:.3rem .6rem">{{ c.teacher_email or '' }}</td>
+              <td style="padding:.3rem .6rem">{{ c.created_at[:10] }}</td>
+              <td style="padding:.3rem .6rem;text-align:right">{{ c.n }}</td>
+              <td style="padding:.3rem .6rem">
+                <form class="inline" method="post"
+                      action="{{ url_for('admin.reissue', token=token, cid=c.id) }}"
+                      onsubmit="return confirm('Re-issue the manage link? The old link stops working immediately.');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="secondary">Re-issue manage link</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
 {% endblock %}
