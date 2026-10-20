@@ -33,6 +33,8 @@ snap="$staging/app.db"
 # restore. The plaintext copy is removed on exit.
 trap 'rc=$?; rm -f "$snap"; [ "$rc" -eq 0 ] || ping /fail' EXIT
 ping /start
+# sqlite3 would silently CREATE an empty database (as root) at a wrong path.
+[ -f "$NNP_DB" ] || { echo "no database at NNP_DB=$NNP_DB" >&2; exit 1; }
 
 # Consistent snapshot: sqlite's online-backup API copies a coherent image even
 # while the app is mid-write in WAL mode. NEVER back up the live app.db by file

@@ -40,6 +40,7 @@ def _run(tmp_path, *, drop=(), **extra):
         p = stubs / name
         p.write_text(body)
         p.chmod(0o755)
+    (tmp_path / "app.db").touch()
     log = tmp_path / "calls.log"
     log.touch()
     env = {
@@ -93,4 +94,11 @@ def test_missing_ping_url_refuses_before_touching_the_db(tmp_path):
 def test_staging_inside_the_nnp_tree_is_refused(tmp_path):
     result, calls = _run(tmp_path, NNP_BACKUP_STAGING="/var/lib/nnp/backup-staging")
     assert result.returncode != 0
+    assert not any(c.startswith("sqlite3 ") for c in calls)
+
+
+def test_missing_db_pings_fail_without_running_sqlite(tmp_path):
+    result, calls = _run(tmp_path, NNP_DB=str(tmp_path / "no-such.db"))
+    assert result.returncode != 0
+    assert _pings(calls) == [PING + "/start", PING + "/fail"]
     assert not any(c.startswith("sqlite3 ") for c in calls)
