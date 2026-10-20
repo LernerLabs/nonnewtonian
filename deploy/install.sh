@@ -9,6 +9,7 @@
 #   mirror:      sudo /opt/nnp/deploy/install.sh --mirror-key
 #                (add the printed key to GitHub, write /etc/nnp/mirror.env)
 #                sudo /opt/nnp/deploy/install.sh --enable-mirror
+#   self-check:  sudo /opt/nnp/deploy/install.sh --enable-selfcheck
 #
 # Every step prints "== step" and a "You should see:" line; read them.
 # Nothing in this repo connects to the server for you.
@@ -100,13 +101,28 @@ enable_mirror() {
     see "'pushed <sha> (tree <sha>)' (or 'mirror unchanged') in the log and the timer listed; then turn on GitHub Pages for branch gh-pages"
 }
 
+enable_selfcheck() {
+    local menv=/etc/nnp/monitor.env
+    step "enable daily self-check"
+    [ -e "$menv" ] || die "$menv missing: copy deploy/monitor/monitor.env.example there and set NNP_SELFCHECK_PING_URL"
+    grep -q '^NNP_SELFCHECK_PING_URL=..*' "$menv" || die "$menv lacks NNP_SELFCHECK_PING_URL (healthchecks.io)"
+    ! grep -q YOUR-UUID "$menv" || die "$menv still contains the YOUR-UUID placeholder in NNP_SELFCHECK_PING_URL"
+    [ -e /etc/systemd/system/nnp-selfcheck.service ] || die "self-check units not installed; run sudo $REPO/deploy/install.sh first"
+    chown root:root "$menv"; chmod 600 "$menv"
+    systemctl start nnp-selfcheck.service || { journalctl -u nnp-selfcheck.service -n 20 --no-pager; die "self-check found problems (log above); fix them and rerun"; }
+    journalctl -u nnp-selfcheck.service -n 5 --no-pager
+    systemctl enable --now nnp-selfcheck.timer
+    systemctl list-timers nnp-selfcheck.timer --no-pager
+    see "'selfcheck ok' in the log, the timer listed, and the healthchecks.io check green"
+}
+
 case "${1:-}" in
     "") ;;
     --enable-backups) enable_backups; exit 0 ;;
     --mirror-key) mirror_key; exit 0 ;;
     --enable-mirror) enable_mirror; exit 0 ;;
-    --enable-selfcheck) die "$1 is not implemented yet (a later M7 package adds it)" ;;
-    *) die "usage: $0 [--enable-backups | --mirror-key | --enable-mirror]" ;;
+    --enable-selfcheck) enable_selfcheck; exit 0 ;;
+    *) die "usage: $0 [--enable-backups | --mirror-key | --enable-mirror | --enable-selfcheck]" ;;
 esac
 
 FRESH=0
