@@ -1,4 +1,4 @@
-"""Behavior of deploy/backup/nnp-backup.sh, run against stub restic, sqlite3
+"""Behavior of deploy/backup/nnp-backup.sh (and nnp-restore-test.sh), run against stub restic, sqlite3
 and curl executables that record their argv. Nothing real is backed up or
 pinged; the real tools only run on the server."""
 import pathlib
@@ -159,3 +159,38 @@ def test_ping_url_never_on_curl_argv(tmp_path):
         argv, _, url = c.rpartition(" -- ")
         assert "-K -" in argv and "hc-ping" not in argv
         assert url.startswith(PING)
+
+
+RESTORE_SH = ROOT / "deploy/backup/nnp-restore-test.sh"
+
+
+@pytest.mark.skipif(shutil.which("sqlite3") is None, reason="needs the sqlite3 CLI")
+@pytest.mark.parametrize("rows,ok", [(0, False), (2, True)])
+def test_restore_test_requires_rows(tmp_path, rows, ok):
+    # A schema-only database used to pass as "restore OK: ... 0 entries"
+    # (review #28). Stub restic "restores" a fixture db; sqlite3 is real.
+    import sqlite3
+    fixture = tmp_path / "fixture.db"
+    con = sqlite3.connect(fixture)
+    con.execute("CREATE TABLE entries (id INTEGER PRIMARY KEY)")
+    con.executemany("INSERT INTO entries DEFAULT VALUES", [()] * rows)
+    con.commit()
+    con.close()
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    (stubs / "restic").write_text("""#!/bin/sh
+d="$4/var/lib/nnp-backup/staging"; mkdir -p "$d"; cp "$FIXTURE_DB" "$d/app.db"
+""")
+    # BSD mktemp ignores TMPDIR; keep the scratch dir inside tmp_path.
+    (stubs / "mktemp").write_text('#!/bin/sh\nmkdir "$STUB_TMP" && echo "$STUB_TMP"\n')
+    for name in ("restic", "mktemp"):
+        (stubs / name).chmod(0o755)
+    env = {"PATH": f"{stubs}:/usr/bin:/bin", "STUB_TMP": str(tmp_path / "restore"),
+           "RESTIC_REPOSITORY": "b2:test:nnp", "FIXTURE_DB": str(fixture)}
+    result = subprocess.run(["bash", str(RESTORE_SH)], env=env, capture_output=True, text=True)
+    if ok:
+        assert result.returncode == 0, result.stderr
+        assert "restore OK: integrity ok, 2 entries" in result.stdout
+    else:
+        assert result.returncode != 0
+        assert "no entries" in result.stderr

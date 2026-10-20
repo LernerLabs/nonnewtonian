@@ -26,4 +26,7 @@ integ="$(sqlite3 "$db" 'PRAGMA integrity_check;')"
 [ "$integ" = "ok" ] || { echo "restored db failed integrity_check: $integ" >&2; exit 1; }
 
 entries="$(sqlite3 "$db" 'SELECT count(*) FROM entries;')"
+# A schema-only or stub database is not a usable backup. (The planned setup
+# order imports the seeds before --enable-backups, so day one has rows.)
+[ "$entries" -gt 0 ] || { echo "restored db has no entries" >&2; exit 1; }
 echo "restore OK: integrity ok, $entries entries in the restored database"
