@@ -118,5 +118,21 @@ curl -fsS http://127.0.0.1:8000/healthz
 You should see: `ok`. (Use the path `find` printed if it differs from the one
 in the `cp` line.)
 
+## Retention across a rebuild
+
+Every snapshot is recorded with the fixed host name `nnp` (`restic backup
+--host nnp`), and the nightly `restic forget` groups snapshots by tag only
+(`--group-by tags`). A rebuilt server with a different hostname, or a changed
+`NNP_BACKUP_STAGING`, therefore keeps pruning the old snapshots, and nothing
+outlives the six-month window. Snapshots taken before this change carry the
+real hostname but the same `nnp` tag, so they are pruned with the rest. To
+check, list them:
+
+```
+sudo bash -c 'set -a; . /etc/nnp-backup.env; set +a; restic snapshots'
+```
+
+You should see: the oldest snapshot no more than about six months old.
+
 Rebuilding on a new instance, the laptop restore drill, and the rest of the
 operations are in `deploy/RUNBOOK.md`.

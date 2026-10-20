@@ -102,3 +102,13 @@ def test_missing_db_pings_fail_without_running_sqlite(tmp_path):
     assert result.returncode != 0
     assert _pings(calls) == [PING + "/start", PING + "/fail"]
     assert not any(c.startswith("sqlite3 ") for c in calls)
+
+
+def test_retention_does_not_depend_on_hostname_or_paths(tmp_path):
+    # restic's default forget grouping is host+paths: a rebuilt server would
+    # leave the old host's snapshots unpruned forever (review #9).
+    _, calls = _run(tmp_path)
+    backup = next(c for c in calls if c.startswith("restic backup "))
+    forget = next(c for c in calls if c.startswith("restic forget "))
+    assert "--host nnp" in backup
+    assert "--group-by tags" in forget and "--tag nnp" in forget

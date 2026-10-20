@@ -50,9 +50,14 @@ integ="$(sqlite3 "$snap" 'PRAGMA integrity_check;')"
 # otherwise every later night fails on the leftover lock.
 restic unlock
 
-restic backup --tag nnp "$snap" "$NNP_PHOTOS"
+# A fixed --host, and forget grouping by tag alone (restic's default groups by
+# host+paths): a rebuilt server with a new hostname, or a changed staging path,
+# must still prune the old snapshots, or removed content outlives the six-month
+# retention the privacy page promises. Snapshots taken before this fix carry
+# the real hostname; they share the "nnp" tag group, so they are pruned too.
+restic backup --host nnp --tag nnp "$snap" "$NNP_PHOTOS"
 
-restic forget --tag nnp \
+restic forget --group-by tags --tag nnp \
   --keep-daily "${KEEP_DAILY:-7}" \
   --keep-weekly "${KEEP_WEEKLY:-4}" \
   --keep-monthly "${KEEP_MONTHLY:-6}" \
