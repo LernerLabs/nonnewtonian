@@ -1,8 +1,11 @@
 """Plain-text outbound mail for the optional /recover flow.
 
-Synchronous with a 10s timeout (simpler than a thread; the small timing
-side channel on address existence is accepted, see the M7 spec). Errors
-propagate: callers log only type(exc).__name__, never the address or a
+Synchronous with a 10s timeout, which is simpler than a background
+thread. The cost is a timing side channel: a POST /recover for an address
+that some class uses waits for the SMTP round trip, one that matches
+nothing returns at once, so timing reveals whether an address has a class
+here. Accepted: it reveals only that (no link, no class name), and the
+/recover rate limits bound how fast anyone can probe. Errors propagate: callers log only type(exc).__name__, never the address or a
 link. Not exercised against a real SMTP server in the test suite; tests
 monkeypatch send().
 """
