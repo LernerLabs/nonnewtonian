@@ -224,3 +224,33 @@ def test_mail_send_uses_starttls_and_login(monkeypatch):
                      ("login", "u", "p"), ("send", "t@example.edu", "Subj", "hello\n")]
     with pytest.raises(ValueError):  # header injection is refused, not sent
         mail.send(cfg, "t@example.edu", "Subj\r\nBcc: x@y.z", "b")
+
+
+def test_trap_hits_do_not_spend_the_recipient_budget(client, outbox):
+    # M7 review #31: honeypot / too-fast posts used to burn a teacher's 3/day.
+    _create_class(client)
+    for i in range(4):
+        assert _ask(client, website="spam", ip=f"10.0.2.{i}").status_code == 400
+    assert _ask(client, ip="10.0.2.9").status_code == 200
+    assert len(outbox) == 1
+
+
+def test_unmatched_addresses_do_not_spend_the_global_budget(client, outbox):
+    # Past the 100/day global limit with addresses that match nothing (one
+    # IP each, so the per-IP limit never trips); a real teacher still gets mail.
+    _create_class(client)
+    for i in range(101):
+        r = _ask(client, email=f"nobody{i}@example.edu", ip=f"10.1.{i // 250}.{i % 250}")
+        assert r.status_code == 200, i
+    assert outbox == []
+    assert _ask(client, ip="10.2.0.1").status_code == 200
+    assert len(outbox) == 1
+
+
+def test_429_page_shows_the_contact_fallback(client, outbox):
+    _create_class(client)
+    for i in range(3):
+        _ask(client, ip=f"10.0.4.{i}")
+    r = _ask(client, ip="10.0.4.9")
+    assert r.status_code == 429
+    assert b"mailto:mglerner@smith.edu" in r.data and b"Too many requests" in r.data

@@ -15,7 +15,8 @@ import re
 import time
 
 from flask import (
-    Blueprint, abort, current_app, redirect, render_template, request, url_for,
+    Blueprint, abort, current_app, g, redirect, render_template, render_template_string,
+    request, url_for,
 )
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
@@ -62,10 +63,20 @@ def form():
                            form_ts=int(time.time()))
 
 
+# The per-recipient and global budgets are spent only by requests that
+# get past the spam traps (rcpt) or actually send mail (global), so junk
+# posts and random addresses cannot shut /recover off for everyone. A
+# known address can still be spent 3 times a day, but each of those sends
+# that teacher a working confirm link, so it is spam, not a lockout.
+# Accepted: someone who registers many classes under addresses they
+# control can still spend the global 100/day mail budget; the 429 page
+# below then points at the contact fallback.
 @bp.route("/recover", methods=["POST"])
 @limiter.limit("5 per hour")
-@limiter.limit("3 per day", key_func=_rcpt_key)
-@limiter.limit("100 per day", key_func=lambda: "recover-global")
+@limiter.limit("3 per day", key_func=_rcpt_key,
+               deduct_when=lambda resp: g.get("recover_past_traps", False))
+@limiter.limit("100 per day", key_func=lambda: "recover-global",
+               deduct_when=lambda resp: g.get("recover_mailed", False))
 def send_link():
     if not current_app.config["SMTP_CONFIGURED"]:
         abort(404)
@@ -78,15 +89,32 @@ def send_link():
         elapsed = 0
     if elapsed < MIN_SUBMIT_SECONDS:
         abort(400)
+    g.recover_past_traps = True
 
     email = request.form.get("email", "").strip()
     rows = _db().execute(
         "SELECT id, name, slug, manage_token_hash FROM collections "
         "WHERE lower(teacher_email)=lower(?) LIMIT 10", (email,)).fetchall()
     if rows:
+        g.recover_mailed = True
         _mail_links(email, rows)
     # Identical response whether or not the address matched anything.
     return render_template("recover_sent.html")
+
+
+_TOO_MANY = """{% extends "base.html" %}
+{% block title %}Too many requests - {{ site_name }}{% endblock %}
+{% block content %}
+  <h1>Too many requests</h1>
+  <p>Email recovery is busy for now; try again tomorrow. Or email
+    <a href="mailto:mglerner@smith.edu">mglerner@smith.edu</a> FROM the address you gave when
+    creating the class, with the class name; I will verify and send a new link.</p>
+{% endblock %}"""
+
+
+@bp.errorhandler(429)
+def _too_many(exc):
+    return render_template_string(_TOO_MANY), 429
 
 
 def _mail_links(email, rows) -> None:
