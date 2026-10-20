@@ -252,3 +252,15 @@ def test_mirror_key_refuses_a_symlinked_ssh_dir(tmp_path):
     assert result.returncode != 0
     assert "is a symlink" in result.stderr
     assert not any(c.startswith(("install", "runuser")) for c in calls)
+
+
+def test_caddy_fallback_redirects_directories_to_a_trailing_slash():
+    # M7 review #11: the export's relative links assume a base URL ending in
+    # "/", but try_files served /scientists/index.html at /scientists. Only a
+    # text check; `caddy validate` on the server is the real one.
+    errors = CADDYFILE[CADDYFILE.index("handle_errors"):]
+    matcher = re.search(r"@dir_no_slash \{\n(.*?)\n\t*\}\n", errors, re.S)
+    assert matcher, "no @dir_no_slash matcher in handle_errors"
+    assert "not path */" in matcher.group(1)
+    assert "file {path}/index.html" in matcher.group(1)
+    assert errors.index("redir @dir_no_slash {path}/") < errors.index("try_files")

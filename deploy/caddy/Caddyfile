@@ -53,6 +53,16 @@ nonnewtonian.org {
 		@down expression `{err.status_code} in [502, 504]`
 		handle @down {
 			root * /var/lib/nnp/export/current
+			# The export's links are relative to each page's directory, so a
+			# directory must be served at its trailing-slash URL: send
+			# /scientists to /scientists/ first (302, so nothing is cached
+			# past the outage). UNVERIFIED until `caddy validate` and a drill
+			# on the server (stop nnp, curl -I /scientists).
+			@dir_no_slash {
+				not path */
+				file {path}/index.html
+			}
+			redir @dir_no_slash {path}/
 			try_files {path} {path}/index.html /down.html
 			file_server {
 				status {err.status_code}
