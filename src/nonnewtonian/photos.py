@@ -46,6 +46,17 @@ from PIL import Image
 # globals any other code can reset (M1 adversarial review finding),
 # and which a library should not mutate at import time anyway.
 MAX_PIXELS = 30_000_000
+SLIDE_LONG_EDGE = 2000   # stored photos are shrunk to this; slides are ~1920 px wide
+MAX_PIXELS_FULL_DECODE = 12_000_000  # non-JPEG: no reduced decode (see normalize_image)
+
+# One normalization at a time: each can still peak near 130 MB (see
+# normalize_image).  Correct only because gunicorn runs ONE process.
+# Separate from the web layer's deck slot, so one normalization can
+# overlap one deck build; the deck side is bounded by its photo-bytes
+# cap (views_public.DECK_PHOTO_BYTES_CAP).  A submit that waits longer
+# than this keeps its entry and loses only the photo, with a warning.
+_NORMALIZE_SLOT = threading.BoundedSemaphore(1)
+NORMALIZE_WAIT_SECONDS = 10
 
 MAX_BYTES = 8 * 1024 * 1024
 FETCH_TIMEOUT = 5.0      # per connect/read
@@ -149,9 +160,32 @@ def sniff_image_type(data: bytes) -> str:
 
 def normalize_image(data: bytes) -> tuple[bytes, str, int, int]:
     """Re-encode through Pillow: validates the file deeply, strips exotic
-    payloads/metadata, converts to slide-safe JPEG (or PNG when there is
-    transparency).  Returns (bytes, extension, width, height)."""
+    payloads/metadata, shrinks to SLIDE_LONG_EDGE, converts to slide-safe
+    JPEG (or PNG when there is transparency).  Returns (bytes, extension,
+    width, height) of the stored image.
+
+    Memory (M7 review #2): Pillow holds 4 bytes/pixel, so a 30 MP image
+    decodes to about 120 MB, and the old full-size convert() copy made
+    one call peak near 231 MB (measured) against MemoryMax=400M.  Now:
+    JPEGs decode at a reduced DCT scale via draft() (the full raster
+    never exists) and everything is shrunk by thumbnail() before
+    convert(); other formats have no reduced decode, so they are capped
+    at MAX_PIXELS_FULL_DECODE; and one slot serializes normalizations.
+    Peak RSS growth measured on macOS (Linux numbers only on the server):
+    30 MP JPEG 231 -> 63 MB; 12 MP PNG 82 MB (RGB) / 128 MB (RGBA, whose
+    resize makes a premultiplied full-size copy)."""
     sniff_image_type(data)
+    if not _NORMALIZE_SLOT.acquire(timeout=NORMALIZE_WAIT_SECONDS):
+        # Worded to sit inside submit_thanks.html's "Your photo didn't
+        # upload (...), but everything else was saved." sentence.
+        raise PhotoError("the server was busy with other photos just now")
+    try:
+        return _normalize(data)
+    finally:
+        _NORMALIZE_SLOT.release()
+
+
+def _normalize(data: bytes) -> tuple[bytes, str, int, int]:
     try:
         with Image.open(io.BytesIO(data)) as image:
             # Header dimensions are available before decoding: reject
@@ -162,10 +196,24 @@ def normalize_image(data: bytes) -> tuple[bytes, str, int, int]:
                     f"That image is implausibly large "
                     f"({image.width}x{image.height} pixels)."
                 )
-            image.load()
             has_alpha = image.mode in ("RGBA", "LA", "P") and (
                 image.mode != "P" or "transparency" in image.info
             )
+            scale = SLIDE_LONG_EDGE / max(image.size)
+            if image.format == "JPEG":
+                if scale < 1:
+                    # Decode at a reduced DCT scale (1/2 .. 1/8), never
+                    # below the slide size: the full raster never exists.
+                    image.draft(None, (max(1, int(image.width * scale)),
+                                       max(1, int(image.height * scale))))
+            elif image.width * image.height > MAX_PIXELS_FULL_DECODE:
+                raise PhotoError(
+                    f"That image is too large for this site "
+                    f"({image.width}x{image.height} pixels); please use a JPEG "
+                    f"or an image under {MAX_PIXELS_FULL_DECODE // 1_000_000} megapixels."
+                )
+            # Loads the pixels (the deep validation) and shrinks in place.
+            image.thumbnail((SLIDE_LONG_EDGE, SLIDE_LONG_EDGE))
             buffer = io.BytesIO()
             if has_alpha:
                 image.convert("RGBA").save(buffer, format="PNG")

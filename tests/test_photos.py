@@ -173,6 +173,70 @@ class TestImageHandling:
         with pytest.raises(PhotoError, match="implausibly large"):
             normalize_image(buffer.getvalue())
 
+    def test_normalize_shrinks_to_slide_size(self):
+        """M7 review #2: a big JPEG (over the full-decode cap, which JPEGs
+        skip via draft()) is stored at slide size, and the returned
+        dimensions are the stored ones."""
+        from nonnewtonian.photos import MAX_PIXELS_FULL_DECODE, SLIDE_LONG_EDGE
+
+        w, h = 6000, 2400
+        assert w * h > MAX_PIXELS_FULL_DECODE
+        data, ext, width, height = normalize_image(_jpeg_bytes(w, h))
+        assert ext == "jpg" and (width, height) == (SLIDE_LONG_EDGE, 800)
+        assert Image.open(io.BytesIO(data)).size == (width, height)
+
+    def test_non_jpeg_over_full_decode_cap_rejected(self):
+        """PNG and friends have no reduced decode, so their full raster
+        is built: capped lower than JPEG (M7 review #2)."""
+        buffer = io.BytesIO()
+        Image.new("1", (4000, 3001)).save(buffer, format="PNG")
+        with pytest.raises(PhotoError, match="too large for this site"):
+            normalize_image(buffer.getvalue())
+
+    def test_normalize_busy_slot_refuses(self, monkeypatch):
+        from nonnewtonian import photos
+
+        monkeypatch.setattr(photos, "NORMALIZE_WAIT_SECONDS", 0.05)
+        assert photos._NORMALIZE_SLOT.acquire(blocking=False)
+        try:
+            with pytest.raises(PhotoError, match="busy"):
+                normalize_image(_jpeg_bytes())
+        finally:
+            photos._NORMALIZE_SLOT.release()
+        normalize_image(_jpeg_bytes())  # slot not leaked
+        assert photos._NORMALIZE_SLOT.acquire(blocking=False)
+        photos._NORMALIZE_SLOT.release()
+
+    def test_concurrent_normalizations_are_serialized(self, monkeypatch):
+        import threading
+        import time
+
+        from nonnewtonian import photos
+
+        state = {"now": 0, "max": 0}
+        lock = threading.Lock()
+        real = photos._normalize
+
+        def counting(data):
+            with lock:
+                state["now"] += 1
+                state["max"] = max(state["max"], state["now"])
+            time.sleep(0.05)
+            try:
+                return real(data)
+            finally:
+                with lock:
+                    state["now"] -= 1
+
+        monkeypatch.setattr(photos, "_normalize", counting)
+        threads = [threading.Thread(target=normalize_image, args=(_jpeg_bytes(),))
+                   for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert state["max"] == 1
+
     def test_store_bytes_content_hash_layout(self, tmp_path):
         stored = store_bytes(_jpeg_bytes(), tmp_path, original_url="http://x/a.jpg")
         assert stored.path.exists()
