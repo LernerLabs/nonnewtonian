@@ -81,6 +81,7 @@ premigration_backup() {
     fi
 }
 
+# Only on the run that created the env file (step 5 and again at the end).
 print_admin_url_once() {
     [ "${FRESH:-0}" = 1 ] || return 0
     echo
@@ -247,13 +248,17 @@ if [ ! -e "$ENV_FILE" ]; then
     sed -i "s/^NNP_SECRET_KEY=\$/NNP_SECRET_KEY=$sk/; s/^NNP_ADMIN_TOKEN=\$/NNP_ADMIN_TOKEN=$at/" "$ENV_FILE"
     FRESH=1
     echo "created $ENV_FILE with a new secret key and admin token"
+    # Print now, not only at the end: a later step can abort this run, and
+    # every rerun keeps the existing file (FRESH=0), so it would never show.
+    # Steps 7/9 print it again on this run as a reminder.
+    print_admin_url_once
 else
     echo "kept existing $ENV_FILE (this script never overwrites it)"
 fi
 chown root:root "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 ls -l "$ENV_FILE"
-see "-rw------- 1 root root ... $ENV_FILE"
+see "on a first install the SAVE THIS ... admin URL line (save it now), then -rw------- 1 root root ... $ENV_FILE"
 
 step "6/9 systemd units and Caddy"
 cp "$REPO/deploy/systemd/nnp.service" /etc/systemd/system/

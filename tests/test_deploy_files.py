@@ -370,3 +370,24 @@ def test_nnp_cli_loads_env_values_literally_like_systemd(tmp_path):
     assert result.returncode == 0, result.stderr
     assert result.stdout == ("/opt/nnp/.venv/bin/nonnewtonian migrate --check|abcd efgh $x $$y|"
                              "me@example.org|Physics <p@example.org>|")
+
+
+def test_install_prints_the_admin_url_as_soon_as_it_creates_the_env_file():
+    # M7 review #20: a first run that died after step 5 never showed it, and
+    # every rerun keeps the file, so FRESH stays 0.
+    step5 = _install_step(5)
+    created = step5.index("FRESH=1")
+    assert "print_admin_url_once" in step5[created:step5.index("else", created)]
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_print_admin_url_once_only_on_the_creating_run(tmp_path):
+    env = tmp_path / "nnp.env"
+    env.write_text("NNP_ADMIN_TOKEN=tok123\n")
+    names = ["envget", "print_admin_url_once"]
+    head = f"ENV_FILE={env}\nSITE=https://nonnewtonian.org\n"
+    fresh, _ = _run_install_functions(tmp_path, names, head + "FRESH=1\nprint_admin_url_once\n", stubs={})
+    assert fresh.returncode == 0, fresh.stderr
+    assert "SAVE THIS IN YOUR PASSWORD MANAGER NOW: https://nonnewtonian.org/admin/tok123" in fresh.stdout
+    rerun, _ = _run_install_functions(tmp_path, names, head + "FRESH=0\nprint_admin_url_once\n", stubs={})
+    assert rerun.returncode == 0 and rerun.stdout == ""
