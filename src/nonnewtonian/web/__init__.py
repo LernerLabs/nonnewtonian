@@ -38,6 +38,10 @@ def _utcnow() -> str:
 def create_app(config: dict | None = None, *, production: bool = False) -> Flask:
     app = Flask(__name__)
     secret = os.environ.get("NNP_SECRET_KEY")
+    # Empty means the default. A non-integer is kept as the raw string so
+    # the production preflight reports it with everything else instead of
+    # int() crashing boot; in dev it only fails when mail is sent.
+    port = os.environ.get("NNP_SMTP_PORT", "").strip() or "587"
     app.config.update(
         DB_PATH=os.environ.get("NNP_DB", "data/app.db"),
         PHOTO_DIR=os.environ.get("NNP_PHOTOS", "data/photos"),
@@ -57,7 +61,7 @@ def create_app(config: dict | None = None, *, production: bool = False) -> Flask
         # synchronizer token + Secure/SameSite=Lax cookie are the defense.
         WTF_CSRF_SSL_STRICT=False,
         SMTP_HOST=os.environ.get("NNP_SMTP_HOST", ""),
-        SMTP_PORT=int(os.environ.get("NNP_SMTP_PORT", "587")),
+        SMTP_PORT=int(port) if port.isdigit() else port,
         SMTP_USER=os.environ.get("NNP_SMTP_USER", ""),
         SMTP_PASSWORD=os.environ.get("NNP_SMTP_PASSWORD", ""),
         MAIL_FROM=os.environ.get("NNP_MAIL_FROM", ""),
@@ -180,6 +184,8 @@ def _production_checks(app: Flask) -> list[str]:
     if any(smtp) and not all(smtp):
         problems.append("SMTP is half-configured; set all of NNP_SMTP_HOST, NNP_SMTP_USER, "
                         "NNP_SMTP_PASSWORD, NNP_MAIL_FROM or none")
+    if not isinstance(cfg["SMTP_PORT"], int):
+        problems.append(f"NNP_SMTP_PORT must be an integer (got {cfg['SMTP_PORT']!r})")
     if not db_mod.migration_files():
         problems.append(f"no migrations found under {db_mod._MIGRATIONS_DIR}; "
                         "the server install must be editable (pip install -e)")
