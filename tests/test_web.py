@@ -104,6 +104,7 @@ def test_slide_download_after_approval(approved_client):
 def test_deck_download(approved_client):
     r = approved_client.get("/textbooks/knight-calc-3rd/deck.pptx")
     assert r.status_code == 200 and r.data[:2] == b"PK"
+    r.close()  # frees the deck slot, as gunicorn's WSGI close() does
 
 
 def test_admin_requires_correct_token(client):

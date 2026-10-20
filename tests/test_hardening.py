@@ -112,9 +112,13 @@ def _assert_busy_then_free(client, url, monkeypatch):
     assert b"busy" in r.data
     assert elapsed < 0.2 + 0.5  # 0.1s wait; slack for a slow CI box
     # The 503 path must not leak (or over-release) the slot: a build now
-    # succeeds, and afterwards the slot is free again.
+    # succeeds.  The slot stays held while the deck is being sent (M7
+    # review #3) and is freed by the WSGI close(), which gunicorn always
+    # calls and the test client calls on r.close().
     r = client.get(url)
     assert r.status_code == 200 and r.data[:2] == b"PK"
+    assert not views_public._HEAVY_BUILD.acquire(blocking=False)
+    r.close()
     assert views_public._HEAVY_BUILD.acquire(blocking=False)
     views_public._HEAVY_BUILD.release()
 
@@ -142,6 +146,46 @@ def test_deck_build_error_releases_slot(class_app, monkeypatch):
 
 def test_class_and_textbook_decks_share_one_semaphore():
     assert views_class.heavy_build is views_public.heavy_build
+
+
+def test_deck_wait_is_short():
+    # M7 review #17: each waiter holds one of gunicorn's 8 threads.
+    assert views_public.HEAVY_BUILD_WAIT_SECONDS <= 2
+
+
+def test_deck_routes_rate_limited(class_app):
+    """M7 review #17: 6 per minute per IP on both deck routes."""
+    for route in ("textbook_deck", "deck"):
+        fn = (views_public if route == "textbook_deck" else views_class).__dict__[route]
+        src = inspect.getsource(fn)
+        assert '@limiter.limit(DECK_RATE_LIMIT)' in src, route
+    assert views_public.DECK_RATE_LIMIT == "6 per minute"
+    client = class_app.test_client()
+    codes = []
+    for _ in range(7):
+        r = client.get(f"/c/{class_app._slug}/deck.pptx")
+        codes.append(r.status_code)
+        r.close()
+    assert codes == [200] * 6 + [429]
+
+
+def test_oversized_deck_refused_before_building(seeded_client, monkeypatch, tmp_path):
+    """M7 review #3: a deck whose stored photos exceed the cap gets a clear
+    413 without building (or taking the slot)."""
+    photo = tmp_path / "big.jpg"
+    photo.write_bytes(b"\xff" * 4096)
+    monkeypatch.setattr(views_public, "_entry_image_paths", lambda entry: [photo])
+    monkeypatch.setattr(views_public, "DECK_PHOTO_BYTES_CAP", 1024)
+
+    def must_not_build(*a, **k):
+        raise AssertionError("deck was built")
+
+    monkeypatch.setattr(views_public, "build_deck", must_not_build)
+    r = seeded_client.get("/textbooks/knight-calc-3rd/deck.pptx")
+    assert r.status_code == 413
+    assert b"one entry at a time" in r.data
+    assert views_public._HEAVY_BUILD.acquire(blocking=False)
+    views_public._HEAVY_BUILD.release()
 
 
 # --- submit rate limit --------------------------------------------------------

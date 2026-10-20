@@ -16,7 +16,9 @@ from ..photos import PhotoError, fetch_photo, store_bytes
 from ..slugs import slugify
 from . import queries as q
 from . import limiter
-from .views_public import _entry_image_paths, _send_pptx, heavy_build
+from .views_public import (
+    DECK_RATE_LIMIT, _entry_image_paths, _send_pptx, check_deck_size, heavy_build,
+)
 from ..slides import DeckChapter, build_deck, build_entry_slide
 
 bp = Blueprint("cls", __name__)
@@ -221,6 +223,7 @@ def entry_slide(slug, entry_id):
 
 
 @bp.route("/c/<slug>/deck.pptx")
+@limiter.limit(DECK_RATE_LIMIT)
 def deck(slug):
     coll = _collection_or_404(slug)
     conn = _db()
@@ -231,6 +234,7 @@ def deck(slug):
         DeckChapter(chapter=c.chapter, topics=c.topics,
                     entries=[(e.to_parser_entry(), _entry_image_paths(e)) for e in c.entries])
         for c in chapters if c.entries]
-    with heavy_build():
+    check_deck_size(deck_chapters)
+    with heavy_build() as slot:
         prs = build_deck(deck_chapters, deck_title=coll["name"])
-        return _send_pptx(prs, f"{slug}-deck.pptx")
+        return slot.hand_off(_send_pptx(prs, f"{slug}-deck.pptx"))

@@ -15,28 +15,73 @@ from flask import (
 )
 
 from ..slides import build_deck, build_entry_slide, DeckChapter
+from . import limiter
 from . import queries as q
 
-bp = Blueprint("public", __name__)
+bp =Blueprint("public", __name__)
 
 LOW_DISK_BYTES = 256 * 1024 ** 2
 _HEAVY_BUILD = threading.BoundedSemaphore(1)   # whole-book/class decks; 512MB box
-HEAVY_BUILD_WAIT_SECONDS = 20
+# Short on purpose: every waiter holds one of gunicorn's 8 threads, so a
+# long wait let ~8 parallel deck requests starve the site (M7 review #17).
+HEAVY_BUILD_WAIT_SECONDS = 2
+# A deck holds its photos about twice over (python-pptx's image parts plus
+# the zipped output), so refuse decks whose stored photos sum past this
+# under MemoryMax=400M (M7 review #3).  Photos stored since that review
+# are <= 2000 px (photos.SLIDE_LONG_EDGE), a few hundred KB each.
+DECK_PHOTO_BYTES_CAP = 100 * 1024 ** 2
+DECK_RATE_LIMIT = "6 per minute"
+
+
+class _Slot:
+    handed_off = False
+
+    def hand_off(self, response):
+        """Keep the slot until the response has been sent (WSGI close()),
+        so the in-memory .pptx being streamed to a slow client still counts
+        against the one-deck-in-memory budget (M7 review #3).  The cost:
+        a slow downloader holds the deck slot (others get a fast 503);
+        DECK_RATE_LIMIT bounds how often one IP can do that."""
+        response.call_on_close(_HEAVY_BUILD.release)
+        self.handed_off = True
+        return response
 
 
 @contextlib.contextmanager
 def heavy_build():
-    """At most one whole-deck build at a time. Correct only because gunicorn
-    runs ONE process (deploy/gunicorn.conf.py)."""
+    """At most one whole-deck build (and its download) at a time. Correct
+    only because gunicorn runs ONE process (deploy/gunicorn.conf.py).
+
+    Known gap: if an after_request hook raised after hand_off(), Flask
+    would discard the response without closing it and the slot would stay
+    taken until the worker restarts; the only such hook (security headers)
+    just sets headers."""
     # abort() here raises before the try: nothing was acquired, so nothing
     # is released (and a BoundedSemaphore would raise on an extra release).
     if not _HEAVY_BUILD.acquire(timeout=HEAVY_BUILD_WAIT_SECONDS):
         abort(make_response("The deck builder is busy; please try again in a minute.",
                             503, {"Retry-After": "30"}))
+    slot = _Slot()
     try:
-        yield
+        yield slot
     finally:
-        _HEAVY_BUILD.release()
+        if not slot.handed_off:
+            _HEAVY_BUILD.release()
+
+
+def check_deck_size(deck_chapters):
+    """Abort with a clear message if the deck's photos are too big to build."""
+    total = 0
+    for chapter in deck_chapters:
+        for _entry, paths in chapter.entries:
+            for path in paths:
+                with contextlib.suppress(OSError):
+                    total += path.stat().st_size
+    if total > DECK_PHOTO_BYTES_CAP:
+        abort(make_response(
+            f"This deck's photos add up to {total // 1024 ** 2} MB, more than this "
+            f"server can build at once ({DECK_PHOTO_BYTES_CAP // 1024 ** 2} MB). "
+            "Download the slides one entry at a time instead.", 413))
 
 
 def _db():
@@ -174,6 +219,7 @@ def scientist_slide(slug):
 
 
 @bp.route("/textbooks/<slug>/deck.pptx")
+@limiter.limit(DECK_RATE_LIMIT)
 def textbook_deck(slug):
     conn = _db()
     tb = q.public_textbook_by_slug(conn, slug)
@@ -187,18 +233,25 @@ def textbook_deck(slug):
         )
         for c in chapters if c.entries
     ]
+    check_deck_size(deck_chapters)
     # The save into the in-memory buffer is as heavy as the build, so both
-    # sit inside the one-at-a-time slot.
-    with heavy_build():
+    # sit inside the one-at-a-time slot, and so does the download.
+    with heavy_build() as slot:
         prs = build_deck(deck_chapters, deck_title=tb["title"])
-        return _send_pptx(prs, f"{slug}-deck.pptx")
+        return slot.hand_off(_send_pptx(prs, f"{slug}-deck.pptx"))
 
 
 def _send_pptx(prs, filename):
     buffer = io.BytesIO()
     prs.save(buffer)
     buffer.seek(0)
-    return send_file(
+    response = send_file(
         buffer, as_attachment=True, download_name=filename,
         mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
     )
+    # With direct_passthrough, werkzeug hands the server the file wrapper
+    # itself, whose close() never reaches Response.close(), so
+    # call_on_close (heavy_build's hand_off) would never fire.  Iterating
+    # through the Response streams the same buffer in blocks, no copy.
+    response.direct_passthrough = False
+    return response
