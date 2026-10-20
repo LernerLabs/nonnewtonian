@@ -41,11 +41,17 @@ if [ -z "$pcent" ] || [ "$pcent" -ge 90 ]; then bad "disk for $DATA is ${pcent:-
 failed=$(systemctl --failed --no-legend --plain) || failed="(systemctl --failed did not run)"
 [ -z "$failed" ] || bad "failed units: $failed"
 
+# The ping URL goes to curl as a config on stdin (-K -), never on argv: argv is
+# world-readable in /proc, and anyone holding the URL can fake success pings.
+# (Config quoting: the URL must not contain a double quote or backslash;
+# healthchecks.io URLs never do.)
+# The /fail body is not secret and stays on argv.
 if [ -z "$msg" ]; then
-    curl -fsS -m 10 --retry 3 -o /dev/null "$NNP_SELFCHECK_PING_URL" || true
+    printf 'url = "%s"\n' "$NNP_SELFCHECK_PING_URL" | curl -fsS -m 10 --retry 3 -o /dev/null -K - || true
     echo "selfcheck ok"
 else
-    curl -fsS -m 10 --retry 3 -o /dev/null --data-raw "$msg" "$NNP_SELFCHECK_PING_URL/fail" || true
+    printf 'url = "%s/fail"\n' "$NNP_SELFCHECK_PING_URL" \
+        | curl -fsS -m 10 --retry 3 -o /dev/null --data-raw "$msg" -K - || true
     printf 'selfcheck FAILED:\n%s' "$msg" >&2
     exit 1
 fi

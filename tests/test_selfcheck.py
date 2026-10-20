@@ -27,8 +27,11 @@ exit 0
 """,
     # Records every call (a --data-raw body may span lines; the tests split the
     # log on "curl "). Only the healthz probe can fail (HEALTHZ_RC).
+    # Logs "curl ARGV -- URL", URL read from a `-K -` config on stdin.
     "curl": """#!/bin/sh
-echo "curl $*" >> "$STUB_LOG"
+url=""
+for a in "$@"; do [ "$a" = "-K" ] && url=$(sed -n 's/^url = "\\(.*\\)"$/\\1/p'); done
+echo "curl $* -- $url" >> "$STUB_LOG"
 for a in "$@"; do case "$a" in *healthz) exit "${HEALTHZ_RC:-0}" ;; esac; done
 exit 0
 """,
@@ -120,3 +123,14 @@ def test_missing_ping_url_refuses(tmp_path):
     assert result.returncode != 0
     assert "NNP_SELFCHECK_PING_URL" in result.stderr
     assert log == ""
+
+
+@pytest.mark.parametrize("env", [{}, {"NO_SWAP": "1"}])
+def test_ping_url_never_on_curl_argv(tmp_path, env):
+    # argv is world-readable in /proc; the URL is a secret (review #27).
+    _, log = _run(tmp_path, **env)
+    pings = _ping_calls(log)
+    assert len(pings) == 1
+    argv, _, url = pings[0].rstrip().rpartition(" -- ")
+    assert "-K -" in argv and "hc-ping" not in argv
+    assert url.startswith(PING)

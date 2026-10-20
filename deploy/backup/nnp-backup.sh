@@ -18,7 +18,11 @@ umask 077
 
 # Dead-man pings: /start, then "" on success or /fail on any error exit. A
 # failed ping never fails the backup; a MISSING success ping is what alerts.
-ping() { curl -fsS -m 10 --retry 3 -o /dev/null "${NNP_BACKUP_PING_URL}$1" || true; }
+# The URL goes to curl as a config on stdin (-K -), never on argv: argv is
+# world-readable in /proc, and anyone holding the URL can fake success pings.
+# (Config quoting: the URL must not contain a double quote or backslash;
+# healthchecks.io URLs never do.)
+ping() { printf 'url = "%s%s"\n' "$NNP_BACKUP_PING_URL" "$1" | curl -fsS -m 10 --retry 3 -o /dev/null -K - || true; }
 
 # Root-owned: never inside the nnp-owned tree, where the app user could plant
 # a symlink at the snapshot path and have root overwrite any file.

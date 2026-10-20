@@ -194,10 +194,18 @@ def test_ping_reports_fail_on_refusal(mirror, tmp_path):
     stubs = tmp_path / "bin"
     stubs.mkdir()
     log = tmp_path / "curl.log"
-    (stubs / "curl").write_text('#!/bin/sh\necho "$@" >> "$STUB_LOG"\n')
+    (stubs / "curl").write_text('#!/bin/sh\n' + """url=""
+for a in "$@"; do [ "$a" = "-K" ] && url=$(sed -n 's/^url = "\\(.*\\)"$/\\1/p'); done
+echo "$* -- $url" >> "$STUB_LOG"
+""")
     (stubs / "curl").chmod(0o755)
     result = run(PATH=f"{stubs}:{os.environ['PATH']}", STUB_LOG=str(log),
                  NNP_MIRROR_PING_URL="https://hc.example/u")
     assert result.returncode != 0
-    pings = [line.split()[-1] for line in log.read_text().splitlines()]
+    lines = log.read_text().splitlines()
+    pings = [line.split()[-1] for line in lines]
     assert pings == ["https://hc.example/u/start", "https://hc.example/u/fail"]
+    # The URL is a secret and argv is world-readable in /proc (review #27).
+    for line in lines:
+        argv = line.rpartition(" -- ")[0]
+        assert "-K -" in argv and "hc.example" not in argv

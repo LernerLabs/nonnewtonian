@@ -27,8 +27,11 @@ case "$2" in
   PRAGMA*) echo ok ;;
 esac
 """,
+    # Logs "curl ARGV -- URL", URL read from the `-K -` config on stdin.
     "curl": """#!/bin/sh
-echo "curl $*" >> "$STUB_LOG"
+url=""
+for a in "$@"; do [ "$a" = "-K" ] && url=$(sed -n 's/^url = "\\(.*\\)"$/\\1/p'); done
+echo "curl $* -- $url" >> "$STUB_LOG"
 """,
 }
 
@@ -145,3 +148,14 @@ def test_readme_passphrase_setup_is_never_world_readable_or_on_argv():
     assert "umask 077; read -rsp" in readme
     assert "YOUR-LONG-RANDOM-PASSPHRASE" not in readme
     assert "mkdir -p /etc/nnp-backup" not in readme
+
+
+def test_ping_url_never_on_curl_argv(tmp_path):
+    # argv is world-readable in /proc; the URL is a secret (review #27).
+    _, calls = _run(tmp_path, RESTIC_BACKUP_RC="1")
+    curls = [c for c in calls if c.startswith("curl ")]
+    assert curls
+    for c in curls:
+        argv, _, url = c.rpartition(" -- ")
+        assert "-K -" in argv and "hc-ping" not in argv
+        assert url.startswith(PING)
