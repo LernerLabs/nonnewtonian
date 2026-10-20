@@ -55,9 +55,19 @@ restic unlock
 # must still prune the old snapshots, or removed content outlives the six-month
 # retention the privacy page promises. Snapshots taken before this fix carry
 # the real hostname; they share the "nnp" tag group, so they are pruned too.
-restic backup --host nnp --tag nnp "$snap" "$NNP_PHOTOS"
+# NNP_BACKUP_TAG (optional) adds a second tag; install.sh passes
+# "pre-migration" for the snapshot its rollback hint points at.
+tags=(--tag nnp)
+[ -z "${NNP_BACKUP_TAG:-}" ] || tags+=(--tag "$NNP_BACKUP_TAG")
+restic backup --host nnp "${tags[@]}" "$snap" "$NNP_PHOTOS"
 
+# --keep-tag pre-migration: keep-daily keeps only the LAST snapshot of a day,
+# so the nightly run would otherwise prune a same-day pre-migration snapshot
+# before anyone rolls back to it. KNOWN LIMITATION: these are then kept
+# FOREVER, past the six-month window the privacy page promises, until pruned
+# by hand (deploy/backup/README.md, "Pre-migration snapshots").
 restic forget --group-by tags --tag nnp \
+  --keep-tag pre-migration \
   --keep-daily "${KEEP_DAILY:-7}" \
   --keep-weekly "${KEEP_WEEKLY:-4}" \
   --keep-monthly "${KEEP_MONTHLY:-6}" \

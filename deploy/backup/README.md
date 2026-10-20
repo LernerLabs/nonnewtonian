@@ -132,7 +132,28 @@ check, list them:
 sudo bash -c 'set -a; . /etc/nnp-backup.env; set +a; restic snapshots'
 ```
 
-You should see: the oldest snapshot no more than about six months old.
+You should see: the oldest snapshot no more than about six months old, apart
+from any tagged `pre-migration` (next section).
+
+## Pre-migration snapshots (prune by hand)
+
+When a deploy has migrations to run, `install.sh` first takes a backup tagged
+`nnp,pre-migration` (via `NNP_BACKUP_TAG=pre-migration`), the snapshot its
+rollback hint tells you to restore. The nightly `forget` keeps every snapshot
+tagged `pre-migration` (`--keep-tag pre-migration`), so the nightly run cannot
+prune it before you roll back. **That means nothing prunes them**: each one
+outlives the six-month window the privacy page promises until you remove it.
+Once the deploy has proved good (and at least every few months), list them and
+forget the ones you no longer need:
+
+```
+sudo bash -c 'set -a; . /etc/nnp-backup.env; set +a; restic snapshots --tag pre-migration'
+sudo bash -c 'set -a; . /etc/nnp-backup.env; set +a; restic forget --prune SNAPSHOT_ID'
+```
+
+You should see: the first command lists each pre-migration snapshot with its
+ID and date; the second prints `removed snapshot ...` and then the prune
+summary. Never forget the newest one while a rollback is still possible.
 
 Rebuilding on a new instance, the laptop restore drill, and the rest of the
 operations are in `deploy/RUNBOOK.md`.

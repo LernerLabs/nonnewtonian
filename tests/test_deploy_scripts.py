@@ -112,3 +112,19 @@ def test_retention_does_not_depend_on_hostname_or_paths(tmp_path):
     forget = next(c for c in calls if c.startswith("restic forget "))
     assert "--host nnp" in backup
     assert "--group-by tags" in forget and "--tag nnp" in forget
+
+
+def test_extra_tag_is_added_and_pre_migration_is_kept(tmp_path):
+    # A same-day nightly forget must not prune install.sh's pre-migration
+    # snapshot (review #24).
+    _, calls = _run(tmp_path, NNP_BACKUP_TAG="pre-migration")
+    backup = next(c for c in calls if c.startswith("restic backup "))
+    forget = next(c for c in calls if c.startswith("restic forget "))
+    assert "--tag nnp --tag pre-migration" in backup
+    assert "--keep-tag pre-migration" in forget
+
+
+def test_no_extra_tag_by_default(tmp_path):
+    _, calls = _run(tmp_path)
+    backup = next(c for c in calls if c.startswith("restic backup "))
+    assert backup.count("--tag") == 1
