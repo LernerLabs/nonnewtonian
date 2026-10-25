@@ -107,7 +107,7 @@ are estimates.
 | 2   | Accounts: password-manager entries, B2 bucket + scoped key, healthchecks.io `nnp-backup` check, UptimeRobot, auto-renew (1.1) | 15  |
 | 3   | DreamCompute 512MB Ubuntu 24.04 instance, ssh key, security group 22/80/443 (1.2)                                             | 15  |
 | 4   | DNS A + www CNAME; `dig` verify (1.3)                                                                                         | 10  |
-| 5   | Check the Caddy repo commands; ssh, clone, first `install.sh`; save the two secrets; verify the CLI and gunicorn (1.4)        | 20  |
+| 5   | ssh, clone, first `install.sh`; save the two secrets; verify the CLI, gunicorn, caddy validate, log redaction (1.4)           | 20  |
 | 6   | Seed on the laptop with the original decks, upload DB + photos, rerun `install.sh` (1.5-1.6)                                  | 25  |
 | 7   | Phone smoke test: approve seeds, class, two submissions, moderate, slide + deck, deck timing, class-deck MemoryPeak (1.7)     | 20  |
 | 8   | Backups: `deploy/backup/README.md` steps 4-6 (`--enable-backups`), green check (1.8)                                          | 20  |
@@ -244,9 +244,10 @@ and both B2 key values, and the healthchecks ping URL.
 
 ### 1.2 DreamCompute instance (browser; 15 min)
 
-- Image: Ubuntu 24.04 LTS. Flavor: the 512MB one. NOT verified here: the
-  flavor name (it was `gp1.subsonic` from memory); pick by the RAM column in
-  the dashboard, not by that name.
+- Image: Ubuntu 24.04 LTS. Flavor: `gp1.semisonic` (512MB, 1 vCPU, $4.50
+  per month cap; DreamHost's "DreamCompute billing" article as of 2026-07-08,
+  checked 2026-10-25). `gp1.subsonic` is the 1GB one ($6.00). Pick by the
+  RAM column if the names have changed.
 - Key pair: your ssh public key.
 - Security group: inbound TCP 22, 80, 443 only (80 is needed for ACME
   validation and the http->https redirect).
@@ -275,22 +276,15 @@ You should see: `SERVER_IP` for the first; `nonnewtonian.org.` then
 
 ### 1.4 First install (20 min)
 
-First check the Caddy apt-repo commands, which were written from memory
-without network access and are NOT verified.
-
-**LAPTOP**
-
-```
-sed -n '/Official Caddy apt repo/,/^fi$/p' ~/coding/nonnewtonian/deploy/install.sh
-```
-
-You should see: the keyring and `debian.deb.txt` lines. Compare them with
-https://caddyserver.com/docs/install ("Debian, Ubuntu, Raspbian", stable).
-If they differ, fix `deploy/install.sh` on the laptop, commit, push, then
-continue.
+The Caddy apt-repo commands in `install.sh` were compared with
+https://caddyserver.com/docs/install ("Debian, Ubuntu, Raspbian", stable) on
+2026-10-25 and match. If apt fails on the Caddy repo in step 2/9, re-compare
+them with that page, fix `deploy/install.sh` on the laptop, commit, push,
+pull on the server and rerun.
 
 On the server (the default user on DreamCompute's Ubuntu images is `ubuntu`,
-from memory; use the one the dashboard names if that is refused):
+per DreamHost's "How to find the default user of an image" article; the
+instance's image shows it under Custom Properties as `default_user`):
 
 **LAPTOP**
 
@@ -320,7 +314,7 @@ after each `== N/9` header; read them):
 - `2/9`: no apt errors, `v2.x` from `caddy version`,
   `Automatic-Reboot "true"`, `Automatic-Reboot-Time "05:30"`,
   `Unattended-Upgrade "1"`, `SystemMaxUse=200M`, `MaxRetentionSec=1month`.
-  If the Caddy repo commands are wrong, it stops here with an apt or curl
+  If the Caddy repo is unreachable, it stops here with an apt or curl
   error.
 - `3/9`: uid/gid lines for nnp, and `nnp` among caddy's groups.
 - `4/9`: no pip errors and `gunicorn (version 22.x or 23.x)`. This is the
@@ -1578,14 +1572,15 @@ These are deliberate, from the M7 design, unless marked otherwise.
 - The server's B2 key can delete backups; the 30-day lifecycle (2.4) is a
   mitigation, not a guarantee.
 - NOT verified where the code was written (your first run is the test):
-  the Caddy apt-repo commands, `caddy validate` (including the log
-  redaction block and the outage fallback's trailing-slash redirect),
-  `systemd-analyze verify`, the unattended-upgrades Caddy origin, the
-  DreamCompute flavor name and default user, the `nonnewtonian` console
-  script and gunicorn install, `MemoryPeak`, every GitHub step (deploy key,
-  push, Pages), real SMTP, and Python 3.12 on the server (pins in
+  `caddy validate` (including the log redaction block and the outage
+  fallback's trailing-slash redirect), `systemd-analyze verify`, the
+  unattended-upgrades Caddy origin, the `nonnewtonian` console script and
+  gunicorn install, `MemoryPeak`, every GitHub step (deploy key, push,
+  Pages), real SMTP, and Python 3.12 on the server (pins in
   `deploy/constraints.txt` were tested on 3.14). install.sh's idempotence
-  was checked by review and `bash -n`, not by an integration run.
+  was checked by review and `bash -n`, not by an integration run. Checked
+  against the vendors' pages on 2026-10-25: the Caddy apt-repo commands, the
+  DreamCompute flavor name (`gp1.semisonic`) and default user (`ubuntu`).
 - Cosmetic: every generated deck carries python-pptx's default document
   properties (author "Steve Canny", created 2013).
 

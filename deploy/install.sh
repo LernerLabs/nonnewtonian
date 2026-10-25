@@ -14,9 +14,10 @@
 # Every step prints "== step" and a "You should see:" line; read them.
 # Nothing in this repo connects to the server for you.
 #
-# NOT verified where this was written (no Ubuntu box, no root, no network):
-# the apt/Caddy repo commands, `caddy validate`, and the systemd units. The
-# first real run on the server is the test; read each "You should see:" line.
+# NOT verified where this was written (no Ubuntu box, no root): `caddy
+# validate` and the systemd units. The first real run on the server is the
+# test; read each "You should see:" line. (The Caddy apt-repo commands were
+# compared with caddyserver.com/docs/install on 2026-10-25 and match.)
 set -euo pipefail
 
 REPO=/opt/nnp
@@ -195,8 +196,8 @@ apt-get update -q
 apt-get install -y -q python3-venv git sqlite3 restic curl unattended-upgrades
 if ! apt-cache policy caddy | grep -q dl.cloudsmith.io; then
     # Official Caddy apt repo, from https://caddyserver.com/docs/install
-    # ("Debian, Ubuntu, Raspbian" -> stable). Written from memory where no
-    # network was available: CHECK THESE AGAINST THAT PAGE before the first run.
+    # ("Debian, Ubuntu, Raspbian" -> stable), compared with that page on
+    # 2026-10-25: identical apart from running as root instead of via sudo.
     apt-get install -y -q debian-keyring debian-archive-keyring apt-transport-https curl
     rm -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
