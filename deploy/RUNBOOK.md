@@ -124,7 +124,7 @@ Session 2 and later:
 | 13  | Drills D1b (12-minute stop, DOWN/UP emails) and D1c (reboot)                                                        | 25  |
 | 14  | Drill D2 (laptop restore from password-manager credentials)                                                         | 30  |
 | 15  | Drill D3 (fail path + silence path)                                                                                 | 25  |
-| 16  | Decide: class pages in the mirror (default and current code: no); privacy wording; submit limit number              | 10  |
+| 16  | Decided 2026-10-25: class pages stay out of the mirror; privacy wording approved; submit limit 200/h, 60/min        | 0   |
 | 17  | Mirror: repo, `--mirror-key`, deploy key, fingerprint check, mirror.env, `--enable-mirror`, Pages, down.html        | 35  |
 | 18  | Drills D4 (takedown, incl. the old-SHA record) and D5 (file://)                                                     | 45  |
 | 19  | Optional SMTP: provider, SPF/DKIM, four vars, restart, end-to-end re-issue test, spam-folder check                  | 45  |
@@ -739,9 +739,12 @@ public communal site rendered to files in `/var/lib/nnp/export/current`,
 which is also what Caddy serves while the app is down) and then
 `nnp-mirror.sh`, which pushes it as one orphan commit to `gh-pages` of a
 DEDICATED public repo served by GitHub Pages: a read-only escape hatch if the
-server dies. Class pages (`/c/*`) are EXCLUDED pending your decision (class
-work was not consented to a public git repo); only communal content is
-exported.
+server dies. Class pages (`/c/*`) are EXCLUDED (decided 2026-10-25: class
+work was not consented to a public git repo, and a public repo enumerates
+every class slug, hence every submit link); only communal content is
+exported. Entries a teacher shares with the communal collection reach the
+mirror that way. A later "close class" + "archive class publicly" opt-in on
+the manage page is the planned middle ground, after launch.
 
 ### 3.1 Repo and deploy key (15 min)
 
@@ -1522,8 +1525,10 @@ These are deliberate, from the M7 design, unless marked otherwise.
 - Takedown is not total: restic keeps removed content, encrypted, up to 6
   months (`KEEP_MONTHLY=6`); GitHub may serve an old mirror commit by SHA;
   browsers cache photos up to 1 day.
-- Class pages are excluded from the export and mirror pending your decision
-  (spec's "whole communal site" read as communal only).
+- Class pages are excluded from the export and mirror (decided 2026-10-25;
+  spec's "whole communal site" read as communal only). Per-class opt-in
+  archiving, gated on a "close class" state that does not exist yet, is the
+  planned post-launch follow-up.
 - One gunicorn process with 8 threads (plan: 2 processes). Rate-limit and
   recovery counters live in that process's memory and reset on every restart
   (including unattended reboots); IPv6 clients are limited per address, so a
