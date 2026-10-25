@@ -80,7 +80,7 @@ def submit(slug):
 # Per real client IP (ProxyFix in production). A whole class behind one
 # school NAT (network address translation) shares a single IP, and 400
 # re-renders count too, so this is sized for a class, not a person.
-@limiter.limit("120 per hour;30 per minute")
+@limiter.limit("200 per hour;60 per minute")
 def submit_post(slug):
     coll = _collection_or_404(slug)
     conn = _db()

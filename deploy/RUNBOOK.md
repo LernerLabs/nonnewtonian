@@ -103,7 +103,7 @@ are estimates.
 
 | #   | Step                                                                                                                          | Min |
 | --- | ----------------------------------------------------------------------------------------------------------------------------- | --- |
-| 1   | Review the M7 commits (`git log --oneline 60579e4..66f387b`); confirm the submit limit `120 per hour;30 per minute`; say go   | 25  |
+| 1   | Review the M7 commits (`git log --oneline 60579e4..66f387b`); confirm the submit limit `200 per hour;60 per minute`; say go   | 25  |
 | 2   | Accounts: password-manager entries, B2 bucket + scoped key, healthchecks.io `nnp-backup` check, UptimeRobot, auto-renew (1.1) | 15  |
 | 3   | DreamCompute 512MB Ubuntu 24.04 instance, ssh key, security group 22/80/443 (1.2)                                             | 15  |
 | 4   | DNS A + www CNAME; `dig` verify (1.3)                                                                                         | 10  |
@@ -1436,7 +1436,7 @@ per minute"` (per IP, separately for `/textbooks/<slug>/deck.pptx` and
 1.7 step 6 measurement (and raise `MemoryHigh`/`MemoryMax` with it), then
 [update](#updating).
 
-429 for a class: the submit limit is `@limiter.limit("120 per hour;30 per
+429 for a class: the submit limit is `@limiter.limit("200 per hour;60 per
 minute")` on `submit_post` in `src/nonnewtonian/web/views_class.py`, per
 public IP, so a whole school behind one NAT shares it. Raise it in the repo
 and update; `sudo systemctl restart nnp` resets every counter at once as a

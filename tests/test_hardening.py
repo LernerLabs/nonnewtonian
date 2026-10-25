@@ -194,7 +194,7 @@ def test_submit_limit_string():
     src = inspect.getsource(views_class)
     m = re.search(r'@limiter\.limit\("([^"]+)"\)\s*\ndef submit_post\b', src)
     assert m, "submit_post rate-limit decorator not found"
-    assert m.group(1) == "120 per hour;30 per minute"
+    assert m.group(1) == "200 per hour;60 per minute"
 
 
 # --- photo OSError after the entry committed ------------------------------------
